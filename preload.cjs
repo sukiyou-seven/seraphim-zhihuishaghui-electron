@@ -13,6 +13,11 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.on('update:progress', handler);
     return () => ipcRenderer.removeListener('update:progress', handler);
   },
+  onAIChunk: (callback) => {
+    const handler = (_event, chunk) => callback(chunk);
+    ipcRenderer.on('ai:chunk', handler);
+    return () => ipcRenderer.removeListener('ai:chunk', handler);
+  },
   openFile: () => ipcRenderer.invoke('dialog:open-file'),
   request: (options) => ipcRenderer.invoke('api:request', options),
   stream: (options) => ipcRenderer.invoke('api:stream', options)

@@ -175,6 +175,7 @@
   const NAV = [
     ['home', '首页'],
     ['dashboard', '大屏'],
+    ['annual', '年度总结'],
     ['opportunities', '商机'],
     ['enterprises', '企业信息'],
     ['messages', '消息'],
@@ -199,7 +200,7 @@
   };
 
   const NAV_ICONS = {
-    home: '⌂', dashboard: '▦', personal: '◉', org: '▣', memberTypes: '▦', memberIdentity: '♙', joinReview: '✓',
+    home: '⌂', dashboard: '▦', annual: '◔', personal: '◉', org: '▣', memberTypes: '▦', memberIdentity: '♙', joinReview: '✓',
     activities: '◷', opportunities: '▤', procurements: '▥', courtesy: '♡',
     preferred: '✦', enterprises: '▦', messages: '✉', ai: '◌', geo: '◎', website: '◍',
     pro: '♛', feedback: '!', update: '↻'
@@ -207,6 +208,7 @@
   const NAV_DESCRIPTIONS = {
     home: '组织概览与快捷入口',
     dashboard: '组织成员、内容与运营数据一屏总览',
+    annual: '按年度汇总组织成员、内容与运营数据',
     personal: '个人资料与登录密码',
     org: '组织资料、证照与电子签章留痕；仅会长和秘书长可修改',
     memberTypes: '新增或删除本组织的会员身份类型',
@@ -374,6 +376,7 @@
       switch (state.view) {
         case 'home': await loadHome(main); break;
         case 'dashboard': await loadDashboard(main); break;
+        case 'annual': await loadAnnualSummary(main); break;
         case 'personal': await loadPersonal(main); break;
         case 'org': await loadOrg(main); break;
         case 'memberTypes': await loadMemberTypes(main); break;
@@ -493,6 +496,136 @@
               <div><span>Pro</span><strong>${pro?.isPro ? '已开通' : '未开通'}</strong></div>
               <div><span>GEO 内容</span><strong>${counts.geo} 篇</strong></div>
             </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  async function loadAnnualSummary(main) {
+    const currentYear = new Date().getFullYear();
+    const year = Number(state.data.summaryYear || currentYear);
+    const safe = (path) => api(path).catch(() => null);
+    const [profile, members, opportunities, activities, procurements, notes, geo, website, pro] = await Promise.all([
+      safe('/api/org/profile'),
+      safe('/api/org/members'),
+      safe('/api/org/opportunities/mine'),
+      safe('/api/org/activities/mine'),
+      safe('/api/org/procurements/mine'),
+      safe('/api/org/courtesy-notes'),
+      safe('/api/org/geo/contents'),
+      safe('/api/org/website'),
+      safe('/api/org/pro/status')
+    ]);
+    const asArray = (value) => Array.isArray(value) ? value : [];
+    const memberList = asArray(members);
+    const opportunityList = asArray(opportunities);
+    const activityList = asArray(activities);
+    const procurementList = asArray(procurements);
+    const noteList = asArray(notes);
+    const geoList = asArray(geo);
+
+    const dateOf = (item, keys) => {
+      for (const key of keys) {
+        if (item?.[key]) {
+          const value = new Date(item[key]);
+          if (!Number.isNaN(value.getTime())) return value;
+        }
+      }
+      return null;
+    };
+    const inYear = (item, keys) => dateOf(item, keys)?.getFullYear() === year;
+    const monthly = Array.from({ length: 12 }, () => 0);
+    const collect = (list, keys) => {
+      for (const item of list) {
+        const date = dateOf(item, keys);
+        if (date?.getFullYear() === year) monthly[date.getMonth()] += 1;
+      }
+    };
+    collect(memberList, ['createdAt']);
+    collect(opportunityList, ['createdAt', 'eventTime']);
+    collect(activityList, ['createdAt', 'startTime']);
+    collect(procurementList, ['createdAt', 'bidDeadline']);
+    collect(noteList, ['createdAt', 'eventTime']);
+    collect(geoList, ['createdAt']);
+
+    const count = (list, keys) => list.filter(item => inYear(item, keys)).length;
+    const memberCount = count(memberList, ['createdAt']);
+    const opportunityCount = count(opportunityList, ['createdAt', 'eventTime']);
+    const activityCount = count(activityList, ['createdAt', 'startTime']);
+    const procurementCount = count(procurementList, ['createdAt', 'bidDeadline']);
+    const noteCount = count(noteList, ['createdAt', 'eventTime']);
+    const geoCount = count(geoList, ['createdAt']);
+    const approvedOpportunities = opportunityList.filter(item => inYear(item, ['createdAt', 'eventTime']) && item.status === 'Approved').length;
+    const maxMonthly = Math.max(1, ...monthly);
+    const yearOptions = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3];
+    const recentOpportunities = opportunityList
+      .filter(item => inYear(item, ['createdAt', 'eventTime']))
+      .slice(0, 3);
+    const recentActivities = activityList
+      .filter(item => inYear(item, ['createdAt', 'startTime']))
+      .slice(0, 3);
+
+    const stat = (label, value, hint) => `
+      <div class="summary-stat">
+        <div class="summary-stat-value">${esc(value)}</div>
+        <div class="summary-stat-label">${esc(label)}</div>
+        <div class="summary-stat-hint">${esc(hint)}</div>
+      </div>`;
+
+    main.innerHTML = `
+      <div class="summary-page">
+        <div class="card summary-hero">
+          <div>
+            <div class="eyebrow">ANNUAL REVIEW</div>
+            <h1>${year} 年度总结</h1>
+            <p class="card-sub">${esc(profile?.name || state.user.organization?.name || '当前组织')} · 成员、内容与运营数据年度回顾</p>
+          </div>
+          <div class="tabs summary-years">
+            ${yearOptions.map(item => `<button class="tab ${item === year ? 'active' : ''}" data-action="summary-year" data-year="${item}">${item}</button>`).join('')}
+          </div>
+        </div>
+
+        <div class="summary-stat-grid">
+          ${stat('新增成员', memberCount, `当前共 ${memberList.length} 人`)}
+          ${stat('发布商机', opportunityCount, `已通过 ${approvedOpportunities} 条`)}
+          ${stat('举办活动', activityCount, `活动记录 ${activityList.length} 条`)}
+          ${stat('招标采购', procurementCount, `采购记录 ${procurementList.length} 条`)}
+          ${stat('人情往来', noteCount, `人情簿共 ${noteList.length} 条`)}
+          ${stat('GEO 内容', geoCount, `累计 ${geoList.length} 篇`)}
+        </div>
+
+        <div class="summary-columns">
+          <div class="card">
+            <h3>月度内容产出</h3>
+            <div class="summary-chart">
+              ${monthly.map((value, index) => `
+                <div class="summary-bar-wrap">
+                  <div class="summary-bar" style="height:${Math.max(4, Math.round(value / maxMonthly * 100))}%">
+                    <span>${value}</span>
+                  </div>
+                  <div class="summary-bar-label">${index + 1}月</div>
+                </div>`).join('')}
+            </div>
+          </div>
+          <div class="card">
+            <h3>年度状态</h3>
+            <div class="summary-status">
+              <div><span>官网</span><strong>${esc(website?.status || '未创建')}</strong></div>
+              <div><span>官网地址</span><strong>${website?.siteUrl ? `<a href="${esc(website.siteUrl)}" target="_blank" rel="noreferrer">${esc(website.siteUrl)}</a>` : '—'}</strong></div>
+              <div><span>Pro 会员</span><strong>${pro?.isPro ? '已开通' : '未开通'}</strong></div>
+              <div><span>可用原石</span><strong>${pro?.organizationStoneBalance ?? pro?.personalStoneBalance ?? 0}</strong></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="summary-columns">
+          <div class="card">
+            <h3>年度商机</h3>
+            ${recentOpportunities.map(item => `<div class="summary-row"><div><strong>${esc(item.title)}</strong><div class="small muted">${esc(item.location || '')}</div></div>${pill(item.statusLabel || item.status || '', item.status === 'Approved' ? 'ok' : 'warn')}</div>`).join('') || '<div class="empty">本年度暂无商机</div>'}
+          </div>
+          <div class="card">
+            <h3>年度活动</h3>
+            ${recentActivities.map(item => `<div class="summary-row"><div><strong>${esc(item.title)}</strong><div class="small muted">${esc(item.location || '')} · ${fmtDate(item.startTime)}</div></div><span class="small muted">${esc(item.statusLabel || item.status || '')}</span></div>`).join('') || '<div class="empty">本年度暂无活动</div>'}
           </div>
         </div>
       </div>`;
@@ -839,23 +972,37 @@
       </div>`;
   }
 
+  function modeTabs(view, mode) {
+    return `
+      <div class="tabs">
+        <button class="tab ${mode === 'view' ? 'active' : ''}" data-action="mode-tab" data-view="${view}" data-mode="view">查看</button>
+        <button class="tab ${mode === 'publish' ? 'active' : ''}" data-action="mode-tab" data-view="${view}" data-mode="publish">发布</button>
+      </div>`;
+  }
+
   async function loadOpportunities(main) {
+    const mode = state.data.oppMode || 'view';
+    if (mode === 'publish') {
+      main.innerHTML = `${modeTabs('opportunities', mode)}
+        <div class="card">
+          <h3>发布商机</h3>
+          <form data-form="create-opportunity">
+            <div class="split">${field('标题', 'title')}${field('地点', 'location')}</div>
+            ${field('活动时间', 'eventTime', '', 'datetime-local')}
+            ${textareaField('内容', 'content')}
+            <button class="primary" type="submit">发布</button>
+          </form>
+        </div>`;
+      return;
+    }
+
     const tab = state.data.oppTab || 'public';
     const [pub, mine] = await Promise.all([
       api('/api/org/opportunities/public'),
       api('/api/org/opportunities/mine')
     ]);
     const list = tab === 'public' ? pub : mine;
-    main.innerHTML = `
-      <div class="card">
-        <h3>发布商机</h3>
-        <form data-form="create-opportunity">
-          <div class="split">${field('标题', 'title')}${field('地点', 'location')}</div>
-          ${field('活动时间', 'eventTime', '', 'datetime-local')}
-          ${textareaField('内容', 'content')}
-          <button class="primary" type="submit">发布</button>
-        </form>
-      </div>
+    main.innerHTML = `${modeTabs('opportunities', mode)}
       <div class="card">
         ${listTabs('opportunities', tab)}
         <table>
@@ -902,23 +1049,29 @@
   }
 
   async function loadActivities(main) {
+    const mode = state.data.actMode || 'view';
+    if (mode === 'publish') {
+      main.innerHTML = `${modeTabs('activities', mode)}
+        <div class="card">
+          <h3>发布活动</h3>
+          <form data-form="create-activity">
+            <div class="split">${field('标题', 'title')}${field('地点', 'location')}</div>
+            <div class="split">${field('开始时间', 'startTime', '', 'datetime-local')}${field('结束时间', 'endTime', '', 'datetime-local')}</div>
+            ${field('人数上限', 'maxParticipants', '30', 'number')}
+            ${textareaField('活动内容', 'content')}
+            <button class="primary" type="submit">发布</button>
+          </form>
+        </div>`;
+      return;
+    }
+
     const tab = state.data.actTab || 'public';
     const [pub, mine] = await Promise.all([
       api('/api/org/activities/public'),
       api('/api/org/activities/mine')
     ]);
     const list = tab === 'public' ? pub : mine;
-    main.innerHTML = `
-      <div class="card">
-        <h3>发布活动</h3>
-        <form data-form="create-activity">
-          <div class="split">${field('标题', 'title')}${field('地点', 'location')}</div>
-          <div class="split">${field('开始时间', 'startTime', '', 'datetime-local')}${field('结束时间', 'endTime', '', 'datetime-local')}</div>
-          ${field('人数上限', 'maxParticipants', '30', 'number')}
-          ${textareaField('活动内容', 'content')}
-          <button class="primary" type="submit">发布</button>
-        </form>
-      </div>
+    main.innerHTML = `${modeTabs('activities', mode)}
       <div class="card">
         ${listTabs('activities', tab)}
         <table>
@@ -936,24 +1089,30 @@
   }
 
   async function loadProcurements(main) {
+    const mode = state.data.procMode || 'view';
+    if (mode === 'publish') {
+      main.innerHTML = `${modeTabs('procurements', mode)}
+        <div class="card">
+          <h3>发布招标采购</h3>
+          <form data-form="create-procurement">
+            ${field('标题', 'title')}
+            ${textareaField('采购内容', 'content')}
+            <div class="split">${field('预算金额', 'budgetAmount', '', 'number')}${field('投标截止', 'bidDeadline', '', 'datetime-local')}</div>
+            <div class="split">${field('开标时间', 'openingTime', '', 'datetime-local')}${field('开标地点', 'openingLocation')}</div>
+            <div class="split">${field('联系人', 'contactName')}${field('联系电话', 'contactPhone')}</div>
+            <button class="primary" type="submit">发布</button>
+          </form>
+        </div>`;
+      return;
+    }
+
     const tab = state.data.procTab || 'public';
     const [pub, mine] = await Promise.all([
       api('/api/org/procurements/public'),
       api('/api/org/procurements/mine')
     ]);
     const list = tab === 'public' ? pub : mine;
-    main.innerHTML = `
-      <div class="card">
-        <h3>发布招标采购</h3>
-        <form data-form="create-procurement">
-          ${field('标题', 'title')}
-          ${textareaField('采购内容', 'content')}
-          <div class="split">${field('预算金额', 'budgetAmount', '', 'number')}${field('投标截止', 'bidDeadline', '', 'datetime-local')}</div>
-          <div class="split">${field('开标时间', 'openingTime', '', 'datetime-local')}${field('开标地点', 'openingLocation')}</div>
-          <div class="split">${field('联系人', 'contactName')}${field('联系电话', 'contactPhone')}</div>
-          <button class="primary" type="submit">发布</button>
-        </form>
-      </div>
+    main.innerHTML = `${modeTabs('procurements', mode)}
       <div class="card">
         ${listTabs('procurements', tab)}
         <table>
@@ -1090,34 +1249,47 @@
       api('/api/org/ai/config'),
       api('/api/org/ai/conversations')
     ]);
-    state.ai.conversations = conversations;
-    if (!state.ai.conversationId && conversations.length) {
-      state.ai.conversationId = conversations[0].id;
+    state.ai.conversations = Array.isArray(conversations) ? conversations : [];
+    if (state.ai.conversationId
+      && !state.ai.conversations.some(item => item.id === state.ai.conversationId)) {
+      state.ai.conversationId = null;
+      state.ai.messages = [];
+    }
+    if (!state.ai.conversationId && state.ai.conversations.length) {
+      state.ai.conversationId = state.ai.conversations[0].id;
     }
     if (state.ai.conversationId) {
-      state.ai.messages = await api(`/api/org/ai/conversations/${state.ai.conversationId}/messages`);
+      try {
+        state.ai.messages = await api(`/api/org/ai/conversations/${state.ai.conversationId}/messages`);
+      } catch {
+        state.ai.conversationId = null;
+        state.ai.messages = [];
+      }
     }
+    const configured = config?.configured !== false;
     main.innerHTML = `
       <div class="split" style="grid-template-columns: 240px 1fr">
         <div class="card">
           <div class="row"><h3 class="spacer">历史对话</h3><button class="btn-sm" data-action="new-ai">新对话</button></div>
           <div class="scroll-list">
-            ${conversations.map(c => `
+            ${state.ai.conversations.map(c => `
               <button class="nav-item ${c.id === state.ai.conversationId ? 'active' : ''}" data-action="open-ai" data-id="${c.id}">${esc(c.title)}</button>
             `).join('') || '<div class="empty">暂无历史对话</div>'}
           </div>
         </div>
         <div class="card">
           <div class="row">
-            <h3 class="spacer">DeepBit AI 助手</h3>
+            <h3 class="spacer">DeepBit AI助手</h3>
             <span class="small muted">个人 ${config.personalStones} / 企业 ${config.organizationStones} 原石</span>
           </div>
+          <div class="card-sub">由平台服务端统一转发模型请求，按 token 扣原石</div>
+          ${configured ? '' : '<div class="pill warn" style="margin-top:10px">AI 模型尚未配置，请联系管理员</div>'}
           <div class="chat" id="chat-box">
-            ${(state.ai.messages || []).map(m => `<div class="msg ${m.role === 'user' ? 'user' : 'assistant'}">${esc(m.content)}</div>`).join('') || '<div class="empty">选择或新建一个对话开始</div>'}
+            ${(state.ai.messages || []).map(m => `<div class="msg ${m.role === 'user' ? 'user' : 'assistant'}">${esc(m.content)}</div>`).join('') || '<div class="empty">发送第一条消息会自动创建对话</div>'}
           </div>
           <form data-form="send-ai" class="chat-input">
-            <textarea name="content" placeholder="给 DeepBit AI 助手发消息…" ${state.ai.conversationId ? '' : 'disabled'}></textarea>
-            <button class="primary" type="submit" ${state.ai.conversationId ? '' : 'disabled'}>发送</button>
+            <textarea name="content" placeholder="给 DeepBit AI助手发消息…" ${configured ? '' : 'disabled'}></textarea>
+            <button class="primary" type="submit" ${configured ? '' : 'disabled'}>发送</button>
           </form>
         </div>
       </div>`;
@@ -1469,37 +1641,41 @@
               <button class="tab ${scope === 'organization' ? 'active' : ''}" data-action="pro-scope" data-scope="organization">企业版</button>
             </div>` : ''}
         </div>
-        <table>
-          <tr><th>名称</th><th>范围</th><th>价格</th><th>周期</th><th>赠送原石</th><th>操作</th></tr>
+        <div class="pro-plan-grid">
           ${plans.map(p => `
-            <tr>
-              <td>${esc(p.name)}</td>
-              <td>${esc(p.scope)}</td>
-              <td>¥${p.price}</td>
-              <td>${p.billingCycleMonths} 个月</td>
-              <td>+${p.bonusStones}</td>
-              <td>
-                ${status.wechatAvailable ? `<button class="btn-sm" data-action="buy-pro" data-code="${esc(p.code)}" data-provider="wechat">微信支付</button>` : ''}
-                ${status.alipayAvailable ? `<button class="btn-sm" data-action="buy-pro" data-code="${esc(p.code)}" data-provider="alipay">支付宝</button>` : ''}
-              </td>
-            </tr>`).join('') || '<tr><td colspan="6" class="empty">暂无可购买套餐</td></tr>'}
-        </table>
+            <div class="pro-plan-card">
+              <div class="pro-plan-head">
+                <h4>${esc(p.name)}</h4>
+                ${p.scope === 'organization' ? pill('组织', 'info') : pill('个人')}
+              </div>
+              <div class="pro-price">
+                <span>¥</span><strong>${p.price}</strong><span>/${p.billingCycleMonths === 1 ? '月' : `${p.billingCycleMonths}个月`}</span>
+              </div>
+              <div class="pro-plan-meta">✦ 赠送 ${p.bonusStones} 原石</div>
+              ${p.seatCount ? `<div class="pro-plan-meta">♙ 支持 ${p.seatCount} 人</div>` : ''}
+              <div class="pro-benefits">
+                ${(p.benefits || []).map(benefit => `<div><span>✓</span>${esc(benefit)}</div>`).join('') || '<div class="muted">暂无权益说明</div>'}
+              </div>
+              <div class="pro-plan-actions">
+                ${status.wechatAvailable ? `<button class="primary" data-action="buy-pro" data-code="${esc(p.code)}" data-provider="wechat">微信支付</button>` : ''}
+                ${status.alipayAvailable ? `<button data-action="buy-pro" data-code="${esc(p.code)}" data-provider="alipay">支付宝</button>` : ''}
+              </div>
+            </div>`).join('') || '<div class="empty">暂无可购买套餐</div>'}
+        </div>
       </div>
       <div class="card">
         <h3>原石套餐</h3>
-        <table>
-          <tr><th>名称</th><th>价格</th><th>原石</th><th>操作</th></tr>
+        <div class="pro-stone-grid">
           ${(status.stonePackages || []).map(p => `
-            <tr>
-              <td>${esc(p.name)}</td>
-              <td>¥${p.price}</td>
-              <td>${p.bonusStones}</td>
-              <td>
+            <div class="pro-stone-card">
+              <div class="pro-plan-head"><h4>${esc(p.name)}</h4>${pill(`+${p.bonusStones} 原石`, 'info')}</div>
+              <div class="pro-price"><span>¥</span><strong>${p.price}</strong></div>
+              <div class="pro-plan-actions">
                 ${status.wechatAvailable ? `<button class="btn-sm" data-action="buy-pro" data-code="${esc(p.code)}" data-provider="wechat">微信</button>` : ''}
                 ${status.alipayAvailable ? `<button class="btn-sm" data-action="buy-pro" data-code="${esc(p.code)}" data-provider="alipay">支付宝</button>` : ''}
-              </td>
-            </tr>`).join('') || '<tr><td colspan="4" class="empty">暂未配置原石套餐</td></tr>'}
-        </table>
+              </div>
+            </div>`).join('') || '<div class="empty">暂未配置原石套餐</div>'}
+        </div>
       </div>`;
   }
 
@@ -1592,8 +1768,14 @@
   }
 
   async function sendAIMessage(content) {
-    if (!state.ai.conversationId) return;
+    if (!content) return;
+    if (!state.ai.conversationId) {
+      const conversation = await api('/api/org/ai/conversations', { method: 'POST' });
+      state.ai.conversationId = conversation.id;
+      state.ai.messages = [];
+    }
     const box = $('#chat-box');
+    if (!box) return;
     box.insertAdjacentHTML('beforeend', `<div class="msg user">${esc(content)}</div>`);
     const assistant = document.createElement('div');
     assistant.className = 'msg assistant';
@@ -1611,12 +1793,23 @@
     const payload = JSON.stringify({ content });
 
     if (window.desktop?.stream) {
-      const result = await window.desktop.stream({ url, headers, body: payload, timeout: 300000 });
-      if (result.error && !result.text) {
-        assistant.textContent = `请求失败：${result.error}`;
-        return;
+      let streamed = '';
+      const unsubscribe = window.desktop.onAIChunk?.((chunk) => {
+        if (!chunk?.content) return;
+        streamed += chunk.content;
+        assistant.textContent = streamed;
+        assistant.scrollIntoView({ block: 'end' });
+      });
+      try {
+        const result = await window.desktop.stream({ url, headers, body: payload, timeout: 300000 });
+        if (!streamed) {
+          assistant.textContent = result.error && !result.text
+            ? `请求失败：${result.error}`
+            : (result.text || (result.error ? `错误：${result.error}` : '（没有返回内容）'));
+        }
+      } finally {
+        unsubscribe?.();
       }
-      assistant.textContent = result.text || (result.error ? `错误：${result.error}` : '（没有返回内容）');
       assistant.scrollIntoView({ block: 'end' });
       return;
     }
@@ -1668,7 +1861,12 @@
     'auth-tab': (el) => { state.authTab = el.dataset.tab; render(); },
     'show-register': () => showRegister(),
     'close-modal': () => closeModal(),
-    'logout': async () => { await clearToken(); state.user = null; render(); },
+    'logout': async () => {
+      await clearToken();
+      state.user = null;
+      state.ai = { conversations: [], messages: [], conversationId: null, streaming: false };
+      render();
+    },
     'refresh': () => loadView(),
     'toggle-user-menu': () => {
       const menu = document.getElementById('user-menu');
@@ -1745,6 +1943,16 @@
     },
     'pro-scope': (el) => {
       state.data.proScope = el.dataset.scope;
+      loadView();
+    },
+    'summary-year': (el) => {
+      state.data.summaryYear = Number(el.dataset.year);
+      loadView();
+    },
+    'mode-tab': (el) => {
+      const key = el.dataset.view === 'activities' ? 'actMode'
+        : el.dataset.view === 'opportunities' ? 'oppMode' : 'procMode';
+      state.data[key] = el.dataset.mode;
       loadView();
     },
     'enterprise-page': (el) => { state.data.enterprisePage = Number(el.dataset.page); loadView(); },

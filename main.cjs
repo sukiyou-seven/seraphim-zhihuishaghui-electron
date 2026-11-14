@@ -191,7 +191,7 @@ app.whenReady().then(() => {
     }
   });
 
-  ipcMain.handle('api:stream', async (_event, options) => {
+  ipcMain.handle('api:stream', async (ipcEvent, options) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.timeout || 300000);
     try {
@@ -222,7 +222,10 @@ app.whenReady().then(() => {
           if (!payload || payload === '[DONE]') continue;
           try {
             const event = JSON.parse(payload);
-            if (event.content) answer += event.content;
+            if (event.content) {
+              answer += event.content;
+              ipcEvent.sender.send('ai:chunk', { content: event.content });
+            }
             if (event.type === 'error' && event.message) return { status: 200, text: answer, error: event.message };
           } catch {
             // 忽略不完整片段
