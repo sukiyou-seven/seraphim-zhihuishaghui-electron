@@ -1,0 +1,26 @@
+{
+  "name": "qitongbao-desktop",
+  "version": "1.0.10001",
+  "description": "企通宝桌面客户端（Electron）",
+  "main": "main.cjs",
+  "author": {
+    "name": "shenbite",
+    "email": "s844562300@163.com"
+  },
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sukiyou-seven/seraphim-zhihuishaghui-electron.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win nsis --publish never",
+    "build:linux": "electron-builder --linux AppImage deb --publish never",
+    "dist": "electron-builder --win nsis --linux AppImage deb --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  }
+}

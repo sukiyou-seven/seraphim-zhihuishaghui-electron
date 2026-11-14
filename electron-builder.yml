@@ -1,0 +1,32 @@
+appId: com.shenbite.qitongbao.desktop
+productName: 企通宝
+copyright: Copyright © 2026 shenbite
+asar: true
+directories:
+  output: dist
+  buildResources: resources
+files:
+  - main.cjs
+  - preload.cjs
+  - renderer/**/*
+  - package.json
+win:
+  icon: resources/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: qitongbao-${version}-win-${arch}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: 企通宝
+linux:
+  icon: resources/icon.png
+  maintainer: s844562300@163.com
+  target:
+    - AppImage
+    - deb
+  category: Office
+  artifactName: qitongbao-${version}-linux-${arch}.${ext}
