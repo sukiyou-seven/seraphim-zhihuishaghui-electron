@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -42,6 +42,7 @@ function createWindow() {
     minWidth: 1040,
     minHeight: 680,
     title: '企通宝',
+    autoHideMenuBar: true,
     backgroundColor: '#10100f',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -52,6 +53,14 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  // Electron 默认会生成 File/Edit/View 等应用菜单，桌面客户端不需要。
+  // macOS 的菜单栏属于系统，保留系统 App 菜单；Windows/Linux 直接移除。
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null);
+    mainWindow.removeMenu();
+  }
+  mainWindow.setMenuBarVisibility(false);
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
