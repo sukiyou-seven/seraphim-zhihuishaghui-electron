@@ -1,6 +1,6 @@
 {
   "name": "qitongbao-desktop",
-  "version": "1.0.10012",
+  "version": "1.0.10013",
   "description": "企通宝桌面客户端（Electron）",
   "main": "main.cjs",
   "author": {

@@ -3,7 +3,7 @@
 
   const BASE_KEY = 'qtb_base_url';
   const DEFAULT_BASE = 'https://qserver.deepbit001.com';
-  const APP_VERSION = '1.0.10012';
+  const APP_VERSION = '1.0.10013';
 
   const state = {
     token: '',
@@ -176,16 +176,16 @@
     ['home', '首页'],
     ['dashboard', '大屏'],
     ['opportunities', '商机'],
-    ['enterprises', '企业查询'],
-    ['messages', '站内消息'],
+    ['enterprises', '企业信息'],
+    ['messages', '消息'],
     ['activities', '活动'],
     ['procurements', '招标采购'],
     ['courtesy', '人情簿'],
     ['preferred', '温商优选'],
-    ['pro', 'Pro 与原石'],
+    ['pro', 'Pro 会员'],
     ['geo', 'GEO 优化', true],
     ['website', '官网', true],
-    ['ai', 'DeepBit AI']
+    ['ai', 'DeepBit AI助手']
   ];
 
   const VIEW_LABELS = {
@@ -219,8 +219,7 @@
     preferred: '管理端精选的温商优选内容',
     enterprises: '查询已入驻企业信息',
     messages: '平台通知与站内消息',
-    ai: 'DeepBit AI 助手',
-    geo: 'GEO 内容生成、检测与发布',
+    ai: 'DeepBit AI 助手',    geo: 'GEO 内容生成、检测与发布',
     website: '组织官网内容、模板与发布',
     pro: 'Pro 会员与原石充值',
     feedback: '投诉、建议与问题反馈',
@@ -828,9 +827,14 @@
   }
 
   function listTabs(view, tab) {
+    const labels = {
+      opportunities: '商机广场',
+      activities: '活动广场',
+      procurements: '招标采购广场'
+    };
     return `
       <div class="tabs">
-        <button class="tab ${tab === 'public' ? 'active' : ''}" data-action="list-tab" data-view="${view}" data-tab="public">广场</button>
+        <button class="tab ${tab === 'public' ? 'active' : ''}" data-action="list-tab" data-view="${view}" data-tab="public">${labels[view] || '广场'}</button>
         <button class="tab ${tab === 'mine' ? 'active' : ''}" data-action="list-tab" data-view="${view}" data-tab="mine">我的发布</button>
       </div>`;
   }
@@ -1026,7 +1030,7 @@
     state.data.enterpriseResult = result;
     main.innerHTML = `
       <div class="card">
-        <h3>企业查询</h3>
+        <h3>企业信息</h3>
         <form data-form="search-enterprises" class="row">
           <input name="keyword" placeholder="企业名称/关键词" style="flex:1">
           <input name="creditCode" placeholder="信用代码" style="flex:1">
@@ -1061,7 +1065,7 @@
     state.data.messageResult = result;
     main.innerHTML = `
       <div class="card">
-        <h3>站内消息</h3>
+        <h3>消息</h3>
         <table>
           <tr><th>标题</th><th>内容</th><th>发布时间</th><th>有效期</th><th>操作</th></tr>
           ${result.items.map(m => `
@@ -1443,6 +1447,11 @@
   async function loadPro(main) {
     const status = await api('/api/org/pro/status');
     state.data.pro = status;
+    const scope = status.personalVisible
+      ? (state.data.proScope || 'personal')
+      : 'organization';
+    state.data.proScope = scope;
+    const plans = (status.plans || []).filter(plan => plan.scope === scope);
     main.innerHTML = `
       <div class="card">
         <h3>Pro 状态</h3>
@@ -1452,10 +1461,17 @@
         </div>
       </div>
       <div class="card">
-        <h3>套餐</h3>
+        <div class="row">
+          <h3 class="spacer">套餐</h3>
+          ${status.personalVisible ? `
+            <div class="tabs" style="margin:0">
+              <button class="tab ${scope === 'personal' ? 'active' : ''}" data-action="pro-scope" data-scope="personal">个人版</button>
+              <button class="tab ${scope === 'organization' ? 'active' : ''}" data-action="pro-scope" data-scope="organization">企业版</button>
+            </div>` : ''}
+        </div>
         <table>
           <tr><th>名称</th><th>范围</th><th>价格</th><th>周期</th><th>赠送原石</th><th>操作</th></tr>
-          ${(status.plans || []).map(p => `
+          ${plans.map(p => `
             <tr>
               <td>${esc(p.name)}</td>
               <td>${esc(p.scope)}</td>
@@ -1725,6 +1741,10 @@
       const key = el.dataset.view === 'activities' ? 'actTab'
         : el.dataset.view === 'opportunities' ? 'oppTab' : 'procTab';
       state.data[key] = el.dataset.tab;
+      loadView();
+    },
+    'pro-scope': (el) => {
+      state.data.proScope = el.dataset.scope;
       loadView();
     },
     'enterprise-page': (el) => { state.data.enterprisePage = Number(el.dataset.page); loadView(); },
