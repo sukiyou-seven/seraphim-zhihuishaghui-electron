@@ -169,9 +169,11 @@
 
   const NAV = [
     ['home', '首页'],
+    ['dashboard', '大屏'],
     ['personal', '个人资料'],
     ['org', '组织资料'],
     ['members', '成员与身份'],
+    ['joinReview', '入会审核', true],
     ['activities', '活动'],
     ['opportunities', '商机'],
     ['procurements', '招标采购'],
@@ -207,7 +209,7 @@
           <div class="sidebar-footer">
             <div class="org">${esc(state.user.nickname || state.user.phone || '')}</div>
             <div>${esc(state.user.realName || '')}</div>
-            <div class="small">Electron 1.0.10003</div>
+            <div class="small">Electron 1.0.10004</div>
             <div class="row" style="margin-top:8px">
               <button class="btn-sm" data-action="logout">退出登录</button>
             </div>
@@ -274,9 +276,11 @@
     try {
       switch (state.view) {
         case 'home': await loadHome(main); break;
+        case 'dashboard': await loadDashboard(main); break;
         case 'personal': await loadPersonal(main); break;
         case 'org': await loadOrg(main); break;
         case 'members': await loadMembers(main); break;
+        case 'joinReview': await loadJoinReview(main); break;
         case 'activities': await loadActivities(main); break;
         case 'opportunities': await loadOpportunities(main); break;
         case 'procurements': await loadProcurements(main); break;
@@ -306,6 +310,97 @@
 
   function dataKey(name) {
     return (state.data[name] || []);
+  }
+
+  async function loadDashboard(main) {
+    const safe = (path) => api(path).catch(() => null);
+    const [profile, members, types, opportunities, myOpportunities, activities, myActivities, procurements, myProcurements, preferred, pro, website, geo, messages, enterprises] = await Promise.all([
+      safe('/api/org/profile'),
+      safe('/api/org/members'),
+      safe('/api/org/member-types'),
+      safe('/api/org/opportunities/public'),
+      safe('/api/org/opportunities/mine'),
+      safe('/api/org/activities/public'),
+      safe('/api/org/activities/mine'),
+      safe('/api/org/procurements/public'),
+      safe('/api/org/procurements/mine'),
+      safe('/api/org/preferred-items'),
+      safe('/api/org/pro/status'),
+      safe('/api/org/website'),
+      safe('/api/org/geo/contents'),
+      safe('/api/org/messages?page=1&pageSize=5'),
+      safe('/api/org/enterprises?page=1&pageSize=5')
+    ]);
+    const org = profile || state.user.organization || {};
+    const counts = {
+      members: Array.isArray(members) ? members.length : 0,
+      types: Array.isArray(types) ? types.length : 0,
+      opportunities: Array.isArray(opportunities) ? opportunities.length : 0,
+      activities: Array.isArray(activities) ? activities.length : 0,
+      procurements: Array.isArray(procurements) ? procurements.length : 0,
+      preferred: Array.isArray(preferred) ? preferred.length : 0,
+      geo: Array.isArray(geo) ? geo.length : 0,
+      enterprises: enterprises?.total ?? enterprises?.items?.length ?? 0,
+      messages: messages?.items?.length ?? 0
+    };
+    const recentOpportunities = (Array.isArray(opportunities) ? opportunities : []).slice(0, 5);
+    const recentActivities = (Array.isArray(activities) ? activities : []).slice(0, 5);
+    const recentMessages = (messages?.items || []).slice(0, 5);
+    const stone = pro?.organizationStoneBalance ?? pro?.personalStoneBalance ?? '-';
+    main.innerHTML = `
+      <div class="dashboard">
+        <div class="dash-hero">
+          <div>
+            <div class="eyebrow">ORGANIZATION OVERVIEW</div>
+            <h1>${esc(org.name || '组织运营大屏')}</h1>
+            <div class="card-sub">${esc(org.creditCode || '')} · ${esc(org.address || org.city || '')}</div>
+            <p class="lead">${esc(org.introduction || '以商会组织为中心，汇总成员、内容、商机、活动与数字化运营数据。')}</p>
+          </div>
+          <div class="dash-hero-side">
+            <span class="pill info">${esc(state.user.memberTypeName || '成员')}</span>
+            <div class="dash-big-number">${esc(stone)}</div>
+            <div class="small muted">可用原石${pro?.isPro ? ' · Pro 已开通' : ''}</div>
+            <button class="btn-sm" data-action="fullscreen-dashboard" style="margin-top:10px">进入全屏</button>
+          </div>
+        </div>
+        <div class="stat-grid">
+          ${dashStat('成员', counts.members, '组织成员')}
+          ${dashStat('会员类型', counts.types, '身份体系')}
+          ${dashStat('商机', counts.opportunities, '公开商机')}
+          ${dashStat('活动', counts.activities, '公开活动')}
+          ${dashStat('招标采购', counts.procurements, '公开项目')}
+          ${dashStat('企业库', counts.enterprises, '匹配企业')}
+          ${dashStat('GEO 内容', counts.geo, '已生成内容')}
+          ${dashStat('优选', counts.preferred, '温商优选')}
+        </div>
+        <div class="dash-columns">
+          <div class="card">
+            <div class="row"><h3 class="spacer">最新商机</h3><button class="btn-sm" data-nav="opportunities">全部</button></div>
+            ${recentOpportunities.map(x => `<div class="dash-row"><div><strong>${esc(x.title)}</strong><div class="small muted">${esc(x.organizationName || '')} · ${esc(x.location || '')}</div></div>${pill(x.statusLabel || x.status || '')}</div>`).join('') || '<div class="empty">暂无商机</div>'}
+          </div>
+          <div class="card">
+            <div class="row"><h3 class="spacer">最新活动</h3><button class="btn-sm" data-nav="activities">全部</button></div>
+            ${recentActivities.map(x => `<div class="dash-row"><div><strong>${esc(x.title)}</strong><div class="small muted">${esc(x.location || '')} · ${fmtDate(x.startTime)}</div></div>${pill(x.statusLabel || x.status || '')}</div>`).join('') || '<div class="empty">暂无活动</div>'}
+          </div>
+          <div class="card">
+            <div class="row"><h3 class="spacer">站内消息</h3><button class="btn-sm" data-nav="messages">全部</button></div>
+            ${recentMessages.map(x => `<div class="dash-row"><div><strong>${esc(x.title)}</strong><div class="small muted">${fmtDate(x.publishedAt)}</div></div>${x.isRead ? pill('已读') : pill('未读', 'warn')}</div>`).join('') || '<div class="empty">暂无消息</div>'}
+          </div>
+          <div class="card">
+            <h3>运营状态</h3>
+            <div class="dash-status">
+              <div><span>官网</span><strong>${esc(website?.status || '未创建')}</strong></div>
+              <div><span>官网地址</span><strong>${website?.siteUrl ? `<a href="${esc(website.siteUrl)}" target="_blank" rel="noreferrer">${esc(website.siteUrl)}</a>` : '—'}</strong></div>
+              <div><span>Pro</span><strong>${pro?.isPro ? '已开通' : '未开通'}</strong></div>
+              <div><span>GEO 内容</span><strong>${counts.geo} 篇</strong></div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function dashStat(label, value, hint) {
+    return `<div class="stat-tile"><div class="stat-value">${esc(value)}</div><div class="stat-label">${esc(label)}</div><div class="stat-hint">${esc(hint)}</div></div>`;
   }
 
   async function loadHome(main) {
@@ -521,6 +616,31 @@
               <td>${esc(x.location)}</td>
               <td>${pill(x.statusLabel || x.status, x.status === 'Approved' ? 'ok' : x.status === 'Rejected' ? 'bad' : 'warn')}</td>
             </tr>`).join('') || '<tr><td colspan="5" class="empty">暂无数据</td></tr>'}
+        </table>
+      </div>`;
+  }
+
+  async function loadJoinReview(main) {
+    const applications = await api('/api/org/join-applications?status=Pending');
+    main.innerHTML = `
+      <div class="card">
+        <div class="row">
+          <h3 class="spacer">入会审核</h3>
+          <span class="small muted">仅显示本组织待审核申请</span>
+        </div>
+        <table>
+          <tr><th>申请人</th><th>手机号</th><th>申请说明</th><th>提交时间</th><th>操作</th></tr>
+          ${(applications || []).map(item => `
+            <tr>
+              <td>${esc(item.nickname)}<div class="small muted">${esc(item.realName)}${item.companyName ? ` · ${esc(item.companyName)}` : ''}</div></td>
+              <td>${esc(item.phone)}</td>
+              <td>${esc(item.message || '—')}</td>
+              <td class="small">${fmtDate(item.createdAt)}</td>
+              <td class="row">
+                <button class="btn-sm primary" data-action="approve-join" data-id="${item.id}">通过</button>
+                <button class="btn-sm danger" data-action="reject-join" data-id="${item.id}">驳回</button>
+              </td>
+            </tr>`).join('') || '<tr><td colspan="5" class="empty">暂无待审核入会申请</td></tr>'}
         </table>
       </div>`;
   }
@@ -1139,12 +1259,52 @@
         <div class="split">${field('手机号', 'phone')}${field('验证码', 'code')}</div>
         <div class="row"><button type="button" class="btn-sm" data-action="send-sms" data-scene="register">发送验证码</button></div>
         <div class="split">${field('密码', 'password', '', 'password')}${field('昵称', 'nickname')}</div>
-        <div class="split">${field('真实姓名', 'realName')}${field('统一社会信用代码', 'creditCode')}</div>
+        <div class="split">${field('真实姓名', 'realName')}${field('统一社会信用代码', 'creditCode', '', 'text', 'data-credit-code autocomplete="off"')}</div>
+        <div id="credit-code-status" class="small muted" style="margin:-2px 0 10px">输入信用代码后会检查是否已有对应组织</div>
         ${field('企业名称', 'companyName')}
         <div class="split">${field('省', 'province')}${field('市', 'city')}</div>
         ${field('区/县', 'district')}
         <div class="modal-actions"><button class="primary" type="submit">提交申请</button></div>
       </form>`);
+  }
+
+  async function lookupCreditCode(input) {
+    const box = document.getElementById('credit-code-status');
+    if (!box) return;
+    const value = (input.value || '').trim().toUpperCase();
+    if (value.length < 8) {
+      box.textContent = '输入信用代码后会检查是否已有对应组织';
+      box.style.color = 'var(--text-3)';
+      return;
+    }
+
+    const seq = (state.data.creditLookupSeq || 0) + 1;
+    state.data.creditLookupSeq = seq;
+    box.textContent = '正在检查组织…';
+    box.style.color = 'var(--text-3)';
+    try {
+      const result = await api(
+        `/api/public/organizations/lookup?creditCode=${encodeURIComponent(value)}`,
+        { token: '' });
+      if (seq !== state.data.creditLookupSeq) return;
+      if (!result?.found) {
+        box.textContent = '未找到对应组织，提交后将创建新组织';
+        box.style.color = 'var(--text-3)';
+      } else if (result.status === 'Active') {
+        box.textContent = `找到组织：${result.name} · 提交后将申请加入该组织`;
+        box.style.color = 'var(--accent-soft)';
+      } else if (result.status === 'Pending') {
+        box.textContent = `找到组织：${result.name} · 该组织正在入驻审核中，暂时不能申请加入`;
+        box.style.color = 'var(--warning)';
+      } else {
+        box.textContent = `找到组织：${result.name} · 当前状态 ${result.status}，不能申请加入`;
+        box.style.color = 'var(--danger)';
+      }
+    } catch (error) {
+      if (seq !== state.data.creditLookupSeq) return;
+      box.textContent = '暂时无法检查信用代码，请稍后重试';
+      box.style.color = 'var(--warning)';
+    }
   }
 
   async function sendSms(scene, phone) {
@@ -1241,6 +1401,13 @@
     'close-modal': () => closeModal(),
     'logout': async () => { await clearToken(); state.user = null; render(); },
     'refresh': () => loadView(),
+    'fullscreen-dashboard': () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen?.().catch(() => toast('当前环境不支持全屏', true));
+      } else {
+        document.exitFullscreen?.();
+      }
+    },
     'send-sms': async (el) => {
       try {
         const form = el.closest('form');
@@ -1282,6 +1449,28 @@
     'delete-member-type': async (el) => {
       try { await api(`/api/org/member-types/${el.dataset.id}`, { method: 'DELETE' }); loadView(); }
       catch (error) { toast(error.message, true); }
+    },
+    'approve-join': async (el) => {
+      try {
+        await api(`/api/org/join-applications/${el.dataset.id}/review`, {
+          method: 'POST',
+          body: { approved: true }
+        });
+        toast('已通过入会申请');
+        loadView();
+      } catch (error) { toast(error.message, true); }
+    },
+    'reject-join': async (el) => {
+      const reason = prompt('请输入驳回原因');
+      if (reason === null) return;
+      try {
+        await api(`/api/org/join-applications/${el.dataset.id}/review`, {
+          method: 'POST',
+          body: { approved: false, reason }
+        });
+        toast('已驳回入会申请');
+        loadView();
+      } catch (error) { toast(error.message, true); }
     },
     'save-member-type': async (el) => {
       try {
@@ -1595,9 +1784,13 @@
     },
     'register': async (data) => {
       try {
-        await api('/api/auth/register', { method: 'POST', body: data });
+        const result = await api('/api/auth/register', { method: 'POST', body: data });
         closeModal();
-        toast('入驻申请已提交，请等待审核');
+        if (result?.status === 'PendingJoin') {
+          toast(`入会申请已提交，等待 ${result.organizationName || '该组织'} 会长或秘书长审核`);
+        } else {
+          toast('入驻申请已提交，请等待审核');
+        }
       } catch (error) { toast(error.message, true); }
     },
     'save-personal': async (data) => {
@@ -1759,6 +1952,13 @@
       } catch (error) { toast(error.message, true); }
     }
   };
+
+  document.addEventListener('input', (event) => {
+    const input = event.target.closest('[data-credit-code]');
+    if (!input) return;
+    clearTimeout(state.data.creditTimer);
+    state.data.creditTimer = setTimeout(() => lookupCreditCode(input), 350);
+  });
 
   document.addEventListener('click', (event) => {
     const nav = event.target.closest('[data-nav]');
