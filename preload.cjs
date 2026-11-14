@@ -6,6 +6,13 @@ contextBridge.exposeInMainWorld('desktop', {
   clearToken: () => ipcRenderer.invoke('auth:clear-token'),
   version: () => ipcRenderer.invoke('app:version'),
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
+  openPath: (target) => ipcRenderer.invoke('app:open-path', target),
+  downloadUpdate: (url, fileName) => ipcRenderer.invoke('update:download', { url, fileName }),
+  onUpdateProgress: (callback) => {
+    const handler = (_event, progress) => callback(progress);
+    ipcRenderer.on('update:progress', handler);
+    return () => ipcRenderer.removeListener('update:progress', handler);
+  },
   openFile: () => ipcRenderer.invoke('dialog:open-file'),
   request: (options) => ipcRenderer.invoke('api:request', options),
   stream: (options) => ipcRenderer.invoke('api:stream', options)

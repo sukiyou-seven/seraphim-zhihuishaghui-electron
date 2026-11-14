@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, net, safeStorage, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -68,6 +68,59 @@ function createWindow() {
   });
 }
 
+async function downloadUpdate(event, payload) {
+  const url = String(payload?.url || '');
+  if (!/^https?:\/\//i.test(url)) {
+    throw new Error('无效的下载地址');
+  }
+
+  const downloads = app.getPath('downloads');
+  fs.mkdirSync(downloads, { recursive: true });
+  const safeName = path.basename(String(payload?.fileName || 'qitongbao-update.bin'));
+  let target = path.join(downloads, safeName);
+  if (fs.existsSync(target)) {
+    const parsed = path.parse(safeName);
+    target = path.join(downloads, `${parsed.name}-${Date.now()}${parsed.ext}`);
+  }
+
+  const response = await net.fetch(url, { redirect: 'follow' });
+  if (!response.ok || !response.body) {
+    throw new Error(`下载失败：HTTP ${response.status}`);
+  }
+
+  const total = Number(response.headers.get('content-length') || 0);
+  const reader = response.body.getReader();
+  const output = fs.createWriteStream(target);
+  let received = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      received += chunk.byteLength;
+      if (!output.write(chunk)) {
+        await new Promise((resolve) => output.once('drain', resolve));
+      }
+      event.sender.send('update:progress', {
+        received,
+        total,
+        percent: total > 0 ? Math.min(100, Math.round((received / total) * 100)) : null
+      });
+    }
+    await new Promise((resolve, reject) => {
+      output.once('error', reject);
+      output.end(resolve);
+    });
+  } catch (error) {
+    output.destroy();
+    try { fs.unlinkSync(target); } catch { /* ignore */ }
+    throw error;
+  }
+
+  return { path: target, size: received };
+}
+
 app.whenReady().then(() => {
   ipcMain.handle('auth:get-token', () => readToken());
   ipcMain.handle('auth:set-token', (_event, token) => writeToken(token));
@@ -75,6 +128,17 @@ app.whenReady().then(() => {
   ipcMain.handle('app:version', () => app.getVersion());
   ipcMain.handle('app:open-external', (_event, url) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+  });
+  ipcMain.handle('update:download', (event, payload) => downloadUpdate(event, payload));
+  ipcMain.handle('app:open-path', async (_event, target) => {
+    const resolved = path.resolve(String(target || ''));
+    const allowed = [app.getPath('downloads'), app.getPath('temp')]
+      .map((dir) => `${path.resolve(dir)}${path.sep}`);
+    if (!allowed.some((prefix) => resolved.startsWith(prefix))) {
+      return { ok: false, error: '不允许打开该路径' };
+    }
+    const error = await shell.openPath(resolved);
+    return { ok: !error, error };
   });
   ipcMain.handle('dialog:open-file', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {

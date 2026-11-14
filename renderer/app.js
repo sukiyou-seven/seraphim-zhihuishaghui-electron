@@ -3,7 +3,7 @@
 
   const BASE_KEY = 'qtb_base_url';
   const DEFAULT_BASE = 'https://qserver.deepbit001.com';
-  const APP_VERSION = '1.0.10011';
+  const APP_VERSION = '1.0.10012';
 
   const state = {
     token: '',
@@ -573,10 +573,11 @@
       const size = Number(item.fileSize || 0);
       const sizeText = size > 0 ? `${(size / 1024 / 1024).toFixed(1)} MB` : '';
       const href = apiUrl(item.downloadUrl || '/');
-      return `<a class="update-download" href="${esc(href)}" target="_blank" rel="noreferrer">
+      return `<button type="button" class="update-download" data-action="download-update" data-url="${esc(href)}" data-name="${esc(item.fileName || '')}">
         <strong>${esc(item.platformLabel || item.platform || '下载')}</strong>
         <span>${esc(item.fileName || '')}${sizeText ? ` · ${sizeText}` : ''}</span>
-      </a>`;
+        <span class="update-download-state">在应用内下载</span>
+      </button>`;
     }).join('');
 
     let status;
@@ -622,7 +623,7 @@
         <div class="card">
           <div class="row">
             <h3 class="spacer">服务器安装包</h3>
-            <span class="small muted">点击后使用系统浏览器打开服务器下载地址</span>
+            <span class="small muted">在应用内下载到系统下载目录，完成后可直接打开安装包</span>
           </div>
           <div class="update-downloads">
             ${downloadLinks || '<div class="empty">服务器暂未提供该版本的安装包</div>'}
@@ -1665,6 +1666,47 @@
       loadView();
     },
     'refresh-update': () => loadView(),
+    'download-update': async (el) => {
+      if (!window.desktop?.downloadUpdate) {
+        toast('当前环境不支持应用内下载', true);
+        return;
+      }
+      const url = el.dataset.url;
+      const fileName = el.dataset.name;
+      const stateText = el.querySelector('.update-download-state');
+      el.disabled = true;
+      if (stateText) stateText.textContent = '准备下载…';
+
+      const unsubscribe = window.desktop.onUpdateProgress?.((progress) => {
+        if (!stateText) return;
+        if (progress?.percent !== null && progress?.percent !== undefined) {
+          stateText.textContent = `下载中 ${progress.percent}%`;
+        } else {
+          stateText.textContent = `下载中 ${(Number(progress?.received || 0) / 1024 / 1024).toFixed(1)} MB`;
+        }
+      });
+
+      try {
+        const result = await window.desktop.downloadUpdate(url, fileName);
+        el.disabled = false;
+        el.classList.add('done');
+        el.dataset.action = 'open-downloaded';
+        el.dataset.path = result.path;
+        if (stateText) stateText.textContent = '已下载，点击打开安装包';
+        toast(`安装包已下载到 ${result.path}`);
+      } catch (error) {
+        el.disabled = false;
+        if (stateText) stateText.textContent = '下载失败，点击重试';
+        toast(error.message || '下载失败', true);
+      } finally {
+        unsubscribe?.();
+      }
+    },
+    'open-downloaded': async (el) => {
+      if (!el.dataset.path) return;
+      const result = await window.desktop.openPath(el.dataset.path);
+      if (result && result.ok === false) toast(result.error || '打开安装包失败', true);
+    },
     'fullscreen-dashboard': () => {
       if (!document.fullscreenElement) {
         document.documentElement.requestFullscreen?.().catch(() => toast('当前环境不支持全屏', true));

@@ -59,8 +59,8 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          name: 企通宝 ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.10011' }}
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.10011' }}
+          name: 企通宝 ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.10012' }}
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v1.0.10012' }}
           target_commitish: ${{ github.sha }}
           generate_release_notes: true
           files: artifacts/**
