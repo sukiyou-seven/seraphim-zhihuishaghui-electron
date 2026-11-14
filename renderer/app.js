@@ -188,6 +188,33 @@
     ['feedback', '投诉与建议']
   ];
 
+  const NAV_ICONS = {
+    home: '⌂', dashboard: '▦', personal: '◉', org: '▣', members: '♙', joinReview: '✓',
+    activities: '◷', opportunities: '▤', procurements: '▥', courtesy: '♡',
+    preferred: '✦', enterprises: '▦', messages: '✉', ai: '◌', geo: '◎', website: '◍',
+    pro: '♛', feedback: '!'
+  };
+  const NAV_DESCRIPTIONS = {
+    home: '组织概览与快捷入口',
+    dashboard: '组织成员、内容与运营数据一屏总览',
+    personal: '个人资料与登录密码',
+    org: '组织资料、证照与电子签章留痕',
+    members: '会员类型、身份与 Pro 成员',
+    joinReview: '审核申请加入本组织的成员',
+    activities: '以组织身份发布活动',
+    opportunities: '以组织身份发布商机',
+    procurements: '以组织身份发布招标采购',
+    courtesy: '记录组织内的人情往来',
+    preferred: '管理端精选的温商优选内容',
+    enterprises: '查询已入驻企业信息',
+    messages: '平台通知与站内消息',
+    ai: 'DeepBit AI 助手',
+    geo: 'GEO 内容生成、检测与发布',
+    website: '组织官网内容、模板与发布',
+    pro: 'Pro 会员与原石充值',
+    feedback: '投诉、建议与问题反馈'
+  };
+
   function render() {
     const app = $('#app');
     if (!state.user) {
@@ -196,20 +223,28 @@
     }
     const name = state.user.organization?.name || '组织';
     const orgName = state.user.organization?.name || '';
+    const currentNav = NAV.find(([key]) => key === state.view);
+    const currentLabel = currentNav ? currentNav[1] : '';
     app.innerHTML = `
       <div class="app-shell">
         <aside class="sidebar">
-          <div class="brand">
-            <h1>企通宝</h1>
-            <p>${esc(orgName)} · ${esc(state.user.memberTypeName || '')}</p>
+          <div class="brand-lockup">
+            <div class="brand-mark">⌂</div>
+            <div class="brand-copy">
+              <h1>企通宝</h1>
+              <p>${esc(orgName)} · ${esc(state.user.memberTypeName || '')}</p>
+            </div>
           </div>
           ${NAV.filter(([,, manageOnly]) => !manageOnly || state.user.canManage).map(([key, label]) => `
-            <button class="nav-item ${state.view === key ? 'active' : ''}" data-nav="${key}">${esc(label)}</button>
+            <button class="nav-item ${state.view === key ? 'active' : ''}" data-nav="${key}">
+              <span class="nav-icon">${NAV_ICONS[key] || '•'}</span>
+              <span>${esc(label)}</span>
+            </button>
           `).join('')}
           <div class="sidebar-footer">
             <div class="org">${esc(state.user.nickname || state.user.phone || '')}</div>
             <div>${esc(state.user.realName || '')}</div>
-            <div class="small">Electron 1.0.10004</div>
+            <div class="small">Electron 1.0.10005</div>
             <div class="row" style="margin-top:8px">
               <button class="btn-sm" data-action="logout">退出登录</button>
             </div>
@@ -217,7 +252,10 @@
         </aside>
         <main class="main">
           <div class="topbar">
-            <h2>${esc((NAV.find(([k]) => k === state.view) || [, ''])[1])}</h2>
+            <div class="topbar-copy">
+              <h2>${esc(currentLabel)}</h2>
+              <div class="topbar-sub">${esc(NAV_DESCRIPTIONS[state.view] || '')}</div>
+            </div>
             <span class="spacer"></span>
             <span class="small muted">${esc(name)}</span>
             <button class="btn-sm" data-action="refresh">刷新</button>
@@ -229,10 +267,40 @@
 
   function authHTML() {
     return `
-      <div class="auth-wrap">
-        <div class="card auth-card">
-          <h1>企通宝</h1>
-          <div class="card-sub">智慧商会 · 桌面客户端</div>
+      <div class="auth-shell">
+        <div class="auth-brand">
+          <div class="brand-lockup">
+            <div class="brand-mark">⌂</div>
+            <div class="brand-copy">
+              <h1>企通宝</h1>
+              <p>多商会 · 企业入驻</p>
+            </div>
+          </div>
+          <h1>把商会里的人情与生意<br>也把好内容，都留下来</h1>
+          <p class="lead">
+            会员、商机、活动与内容运营一处管理；<br>
+            入驻申请审核通过后即可开始使用。
+          </p>
+          <div class="auth-features">
+            <div class="auth-feature">
+              <div class="auth-feature-icon">♙</div>
+              <div><strong>会员与组织</strong><span>会员目录、企业档案与入会审核</span></div>
+            </div>
+            <div class="auth-feature">
+              <div class="auth-feature-icon">✦</div>
+              <div><strong>商机与活动</strong><span>供需对接、活动报名与签到</span></div>
+            </div>
+            <div class="auth-feature">
+              <div class="auth-feature-icon">◎</div>
+              <div><strong>GEO 内容运营</strong><span>让商会的好内容被 AI 看见</span></div>
+            </div>
+          </div>
+          <div class="auth-copyright">© 2026 西安深比特人工智能科技有限公司</div>
+        </div>
+
+        <div class="card auth-panel">
+          <h2>登录</h2>
+          <div class="card-sub">欢迎回来，登录后继续管理你的商会</div>
           <div class="auth-tabs">
             <button class="${state.authTab === 'password' ? 'primary' : ''}" data-action="auth-tab" data-tab="password">密码登录</button>
             <button class="${state.authTab === 'sms' ? 'primary' : ''}" data-action="auth-tab" data-tab="sms">验证码登录</button>
