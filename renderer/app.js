@@ -3,7 +3,7 @@
 
   const BASE_KEY = 'qtb_base_url';
   const DEFAULT_BASE = 'https://qserver.deepbit001.com';
-  const APP_VERSION = '1.0.10013';
+  const APP_VERSION = '1.0.10014';
 
   const state = {
     token: '',
