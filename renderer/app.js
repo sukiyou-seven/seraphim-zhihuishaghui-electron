@@ -175,36 +175,42 @@
   const NAV = [
     ['home', '首页'],
     ['dashboard', '大屏'],
-    ['personal', '个人资料'],
-    ['org', '组织资料'],
-    ['members', '成员与身份'],
-    ['joinReview', '入会审核', true],
-    ['activities', '活动'],
     ['opportunities', '商机'],
+    ['enterprises', '企业查询'],
+    ['messages', '站内消息'],
+    ['activities', '活动'],
     ['procurements', '招标采购'],
     ['courtesy', '人情簿'],
     ['preferred', '温商优选'],
-    ['enterprises', '企业查询'],
-    ['messages', '站内消息'],
-    ['ai', 'DeepBit AI'],
-    ['geo', 'GEO 优化'],
-    ['website', '官网', true],
     ['pro', 'Pro 与原石'],
-    ['feedback', '投诉与建议']
+    ['geo', 'GEO 优化', true],
+    ['website', '官网', true],
+    ['ai', 'DeepBit AI']
   ];
 
+  const VIEW_LABELS = {
+    personal: '个人资料管理',
+    org: '组织管理',
+    memberTypes: '会员类型管理',
+    memberIdentity: '会员身份管理',
+    joinReview: '入会审核',
+    feedback: '投诉与建议',
+    update: '版本检查'
+  };
+
   const NAV_ICONS = {
-    home: '⌂', dashboard: '▦', personal: '◉', org: '▣', members: '♙', joinReview: '✓',
+    home: '⌂', dashboard: '▦', personal: '◉', org: '▣', memberTypes: '▦', memberIdentity: '♙', joinReview: '✓',
     activities: '◷', opportunities: '▤', procurements: '▥', courtesy: '♡',
     preferred: '✦', enterprises: '▦', messages: '✉', ai: '◌', geo: '◎', website: '◍',
-    pro: '♛', feedback: '!'
+    pro: '♛', feedback: '!', update: '↻'
   };
   const NAV_DESCRIPTIONS = {
     home: '组织概览与快捷入口',
     dashboard: '组织成员、内容与运营数据一屏总览',
     personal: '个人资料与登录密码',
-    org: '组织资料、证照与电子签章留痕',
-    members: '会员类型、身份与 Pro 成员',
+    org: '组织资料、证照与电子签章留痕；仅会长和秘书长可修改',
+    memberTypes: '新增或删除本组织的会员身份类型',
+    memberIdentity: '调整成员身份与 Pro 名额',
     joinReview: '审核申请加入本组织的成员',
     activities: '以组织身份发布活动',
     opportunities: '以组织身份发布商机',
@@ -230,7 +236,7 @@
     const name = state.user.organization?.name || '组织';
     const orgName = state.user.organization?.name || '';
     const currentNav = NAV.find(([key]) => key === state.view);
-    const currentLabel = currentNav ? currentNav[1] : (state.view === 'update' ? '版本检查' : '');
+    const currentLabel = currentNav ? currentNav[1] : (VIEW_LABELS[state.view] || '');
     app.innerHTML = `
       <div class="app-shell">
         <aside class="sidebar">
@@ -258,7 +264,18 @@
               </span>
             </button>
             <div class="user-menu" id="user-menu" hidden>
-              <button data-action="open-update"><span>◌</span>版本检查</button>
+              <div class="user-menu-label">账号</div>
+              <button data-nav="personal"><span>◉</span>个人资料管理</button>
+              <button data-nav="org"><span>▣</span>组织管理</button>
+              ${state.user.canManage ? `
+                <div class="user-menu-label">会员管理</div>
+                <button data-nav="memberTypes"><span>▦</span>会员类型管理</button>
+                <button data-nav="memberIdentity"><span>♙</span>会员身份管理</button>
+                <button data-nav="joinReview"><span>✓</span>入会审核</button>
+              ` : ''}
+              <div class="user-menu-label">其他</div>
+              <button data-nav="feedback"><span>!</span>投诉与建议</button>
+              <button data-action="open-update"><span>↻</span>版本检查</button>
               <button data-action="logout"><span>↪</span>退出登录</button>
             </div>
           </div>
@@ -360,7 +377,8 @@
         case 'dashboard': await loadDashboard(main); break;
         case 'personal': await loadPersonal(main); break;
         case 'org': await loadOrg(main); break;
-        case 'members': await loadMembers(main); break;
+        case 'memberTypes': await loadMemberTypes(main); break;
+        case 'memberIdentity': await loadMemberIdentity(main); break;
         case 'joinReview': await loadJoinReview(main); break;
         case 'activities': await loadActivities(main); break;
         case 'opportunities': await loadOpportunities(main); break;
@@ -685,43 +703,46 @@
       api('/api/org/audit-logs').catch(() => [])
     ]);
     state.data.org = org;
+    const canManage = state.user.canManage === true;
+    const ro = canManage ? '' : 'disabled';
     main.innerHTML = `
       <div class="card">
         <h3>组织资料</h3>
+        ${canManage ? '' : '<div class="card-sub" style="margin-bottom:10px">仅会长或秘书长可以修改组织资料和证照，当前为只读。</div>'}
         <form data-form="save-org">
           <div class="split">
             ${field('组织名称', 'name', org.name, 'text', 'disabled')}
             ${field('统一社会信用代码', 'creditCode', org.creditCode, 'text', 'disabled')}
           </div>
-          ${field('地址', 'address', org.address || '')}
+          ${field('地址', 'address', org.address || '', 'text', ro)}
           <div class="split">
-            ${field('省', 'province', org.province || '')}
-            ${field('市', 'city', org.city || '')}
+            ${field('省', 'province', org.province || '', 'text', ro)}
+            ${field('市', 'city', org.city || '', 'text', ro)}
           </div>
           <div class="split">
-            ${field('区/县', 'district', org.district || '')}
-            ${field('联系电话', 'contactPhone', org.contactPhone || '')}
+            ${field('区/县', 'district', org.district || '', 'text', ro)}
+            ${field('联系电话', 'contactPhone', org.contactPhone || '', 'text', ro)}
           </div>
-          ${textareaField('组织介绍', 'introduction', org.introduction || '')}
-          <button class="primary" type="submit">保存组织资料</button>
+          ${textareaField('组织介绍', 'introduction', org.introduction || '', ro)}
+          ${canManage ? '<button class="primary" type="submit">保存组织资料</button>' : ''}
         </form>
       </div>
       <div class="card">
         <h3>证照与电子印章</h3>
         <div class="row">
           <span>营业执照：${org.hasBusinessLicense ? pill('已上传', 'ok') : pill('未上传')}</span>
-          <button data-action="upload-asset" data-kind="license">上传营业执照</button>
-          <button class="danger" data-action="delete-asset" data-kind="license">删除</button>
+          <button data-action="upload-asset" data-kind="license" ${ro}>上传营业执照</button>
+          <button class="danger" data-action="delete-asset" data-kind="license" ${ro}>删除</button>
         </div>
         <div class="row" style="margin-top:10px">
           <span>电子公章：${org.hasSeal ? pill('已上传', 'ok') : pill('未上传')}</span>
-          <button data-action="upload-asset" data-kind="seal">上传公章</button>
-          <button class="danger" data-action="delete-asset" data-kind="seal">删除</button>
+          <button data-action="upload-asset" data-kind="seal" ${ro}>上传公章</button>
+          <button class="danger" data-action="delete-asset" data-kind="seal" ${ro}>删除</button>
         </div>
         <div class="row" style="margin-top:10px">
           <span>法人签名：${org.hasSignature ? pill('已上传', 'ok') : pill('未上传')}</span>
-          <button data-action="upload-asset" data-kind="signature">上传签名</button>
-          <button class="danger" data-action="delete-asset" data-kind="signature">删除</button>
+          <button data-action="upload-asset" data-kind="signature" ${ro}>上传签名</button>
+          <button class="danger" data-action="delete-asset" data-kind="signature" ${ro}>删除</button>
         </div>
       </div>
       <div class="card">
@@ -741,18 +762,19 @@
       </div>`;
   }
 
-  async function loadMembers(main) {
-    const [types, members] = await Promise.all([
-      api('/api/org/member-types'),
-      api('/api/org/members')
-    ]);
+  async function loadMemberTypes(main) {
+    if (!state.user.canManage) {
+      main.innerHTML = '<div class="card"><div class="empty">只有会长或秘书长可以管理会员类型。</div></div>';
+      return;
+    }
+    const types = await api('/api/org/member-types');
     state.data.memberTypes = types;
-    state.data.members = members;
     main.innerHTML = `
       <div class="card">
-        <h3>会员身份</h3>
-        <form data-form="add-member-type" class="row">
-          <input name="name" placeholder="新身份名称" required style="flex:1">
+        <h3>会员类型管理</h3>
+        <div class="card-sub">会长和秘书长是内置身份，不能删除；其他类型可自由增加或删除。仍有成员使用的类型需要先调整成员身份。</div>
+        <form data-form="add-member-type" class="row" style="margin-top:12px">
+          <input name="name" placeholder="新身份名称，例如：理事" required style="flex:1">
           <button class="primary" type="submit">新增身份</button>
         </form>
         <table style="margin-top:10px">
@@ -763,12 +785,27 @@
               <td class="mono">${esc(t.code || '')}</td>
               <td>${t.memberCount}</td>
               <td>${t.isBuiltIn ? '<span class="small muted">内置</span>' : `<button class="btn-sm danger" data-action="delete-member-type" data-id="${t.id}">删除</button>`}</td>
-            </tr>`).join('')}
+            </tr>`).join('') || '<tr><td colspan="4" class="empty">还没有会员类型</td></tr>'}
         </table>
-      </div>
+      </div>`;
+  }
+
+  async function loadMemberIdentity(main) {
+    if (!state.user.canManage) {
+      main.innerHTML = '<div class="card"><div class="empty">只有会长或秘书长可以调整会员身份。</div></div>';
+      return;
+    }
+    const [types, members] = await Promise.all([
+      api('/api/org/member-types'),
+      api('/api/org/members')
+    ]);
+    state.data.memberTypes = types;
+    state.data.members = members;
+    main.innerHTML = `
       <div class="card">
-        <h3>组织成员</h3>
-        <table>
+        <h3>会员身份管理</h3>
+        <div class="card-sub">会长身份由入驻审核自动设置，不能在这里修改；其他成员可调整为秘书长、普通会员或自定义类型。</div>
+        <table style="margin-top:10px">
           <tr><th>成员</th><th>手机号</th><th>身份</th><th>Pro</th><th>操作</th></tr>
           ${members.map(m => `
             <tr>
@@ -784,7 +821,7 @@
                 <button class="btn-sm" data-action="save-member-type" data-id="${m.id}">保存身份</button>
                 <button class="btn-sm" data-action="toggle-member-pro" data-id="${m.id}" data-enabled="${m.isPro ? 'false' : 'true'}">${m.isPro ? '取消 Pro' : '授予 Pro'}</button>
               </td>
-            </tr>`).join('')}
+            </tr>`).join('') || '<tr><td colspan="5" class="empty">组织内还没有成员</td></tr>'}
         </table>
       </div>`;
   }
@@ -831,6 +868,10 @@
   }
 
   async function loadJoinReview(main) {
+    if (!state.user.canManage) {
+      main.innerHTML = '<div class="card"><div class="empty">只有会长或秘书长可以审核入会申请。</div></div>';
+      return;
+    }
     const applications = await api('/api/org/join-applications?status=Pending');
     main.innerHTML = `
       <div class="card">
