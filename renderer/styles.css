@@ -1,24 +1,24 @@
 :root {
-  --bg: #10100f;
-  --bg-soft: #171614;
-  --surface: #1d1c19;
-  --surface-strong: #26241f;
-  --stroke: #35322b;
-  --text: #f2ece3;
-  --text-2: #b9b0a3;
-  --text-3: #7f776c;
-  --accent: #d96f4b;
-  --accent-soft: #e8a288;
-  --success: #5fb98a;
+  --bg: #0a0710;
+  --bg-soft: #120d1a;
+  --surface: #17121f;
+  --surface-strong: #241a30;
+  --stroke: rgba(255, 255, 255, .1);
+  --text: #f7f2f4;
+  --text-2: #b9b0bb;
+  --text-3: #857b88;
+  --accent: #eea2a4;
+  --accent-soft: #7dd3fc;
+  --success: #6ee7b7;
   --warning: #e0b45e;
   --danger: #d66b6b;
-  --radius: 12px;
+  --radius: 16px;
 }
 * { box-sizing: border-box; }
 html, body, #app { height: 100%; }
 body {
   margin: 0;
-  background: radial-gradient(1200px 700px at 20% -10%, #2a211c 0%, var(--bg) 55%);
+  background: radial-gradient(1200px 700px at 20% -10%, #2a1428 0%, var(--bg) 55%);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 13px;

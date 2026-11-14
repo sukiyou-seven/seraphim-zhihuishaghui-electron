@@ -181,6 +181,7 @@
     ['messages', '站内消息'],
     ['ai', 'DeepBit AI'],
     ['geo', 'GEO 优化'],
+    ['website', '官网', true],
     ['pro', 'Pro 与原石'],
     ['feedback', '投诉与建议']
   ];
@@ -200,13 +201,13 @@
             <h1>企通宝</h1>
             <p>${esc(orgName)} · ${esc(state.user.memberTypeName || '')}</p>
           </div>
-          ${NAV.map(([key, label]) => `
+          ${NAV.filter(([,, manageOnly]) => !manageOnly || state.user.canManage).map(([key, label]) => `
             <button class="nav-item ${state.view === key ? 'active' : ''}" data-nav="${key}">${esc(label)}</button>
           `).join('')}
           <div class="sidebar-footer">
             <div class="org">${esc(state.user.nickname || state.user.phone || '')}</div>
             <div>${esc(state.user.realName || '')}</div>
-            <div class="small">Electron 1.0.10001</div>
+            <div class="small">Electron 1.0.10003</div>
             <div class="row" style="margin-top:8px">
               <button class="btn-sm" data-action="logout">退出登录</button>
             </div>
@@ -285,6 +286,7 @@
         case 'messages': await loadMessages(main); break;
         case 'ai': await loadAI(main); break;
         case 'geo': await loadGeo(main); break;
+        case 'website': await loadWebsite(main); break;
         case 'pro': await loadPro(main); break;
         case 'feedback': renderFeedback(main); break;
         default: main.innerHTML = '<div class="empty">未知页面</div>';
@@ -373,7 +375,10 @@
   }
 
   async function loadOrg(main) {
-    const org = await api('/api/org/profile');
+    const [org, logs] = await Promise.all([
+      api('/api/org/profile'),
+      api('/api/org/audit-logs').catch(() => [])
+    ]);
     state.data.org = org;
     main.innerHTML = `
       <div class="card">
@@ -413,6 +418,21 @@
           <button data-action="upload-asset" data-kind="signature">上传签名</button>
           <button class="danger" data-action="delete-asset" data-kind="signature">删除</button>
         </div>
+      </div>
+      <div class="card">
+        <h3>用章与签名留痕</h3>
+        <div class="card-sub">只追加、不修改；记录操作人、时间、设备与对象，作为平台内部审计依据。</div>
+        <table style="margin-top:10px">
+          <tr><th>时间</th><th>操作人</th><th>动作</th><th>对象</th><th>文件摘要</th></tr>
+          ${logs.slice(0, 50).map(log => `
+            <tr>
+              <td class="small">${fmtDate(log.createdAt)}</td>
+              <td>${esc(log.userName || log.userPhone || '')}</td>
+              <td>${esc(log.action || '')}</td>
+              <td>${esc(log.targetTitle || log.targetType || '')}</td>
+              <td class="mono small">${esc((log.fileHash || '').slice(0, 12))}</td>
+            </tr>`).join('') || '<tr><td colspan="5" class="empty">暂无留痕记录</td></tr>'}
+        </table>
       </div>`;
   }
 
@@ -889,6 +909,165 @@
       </div>`;
   }
 
+  function websiteTemplatesOrDefault(templates) {
+    if (Array.isArray(templates) && templates.length) return templates;
+    return [{ id: 'default', name: '企业官网', description: '默认官网模板', category: 'website' }];
+  }
+
+  function websiteTemplateSelect(templates, current) {
+    return `<select name="templateId">${websiteTemplatesOrDefault(templates).map(t => `
+      <option value="${esc(t.id)}" ${t.id === current ? 'selected' : ''}>${esc(t.name)} — ${esc(t.description || '')}</option>
+    `).join('')}</select>`;
+  }
+
+  async function loadWebsite(main) {
+    const [templates, site] = await Promise.all([
+      api('/api/org/website/templates').catch(() => []),
+      api('/api/org/website')
+    ]);
+    state.data.website = site;
+    state.data.websiteTemplates = templates;
+    main.innerHTML = site.siteId ? websiteEditHTML(site, templates) : websiteCreateHTML(templates);
+  }
+
+  function websiteCreateHTML(templates) {
+    const org = state.user.organization || {};
+    return `
+      <div class="card">
+        <h3>创建官网</h3>
+        <div class="card-sub">填写品牌与联系方式，选择模板和域名；创建后可继续编辑完整内容并发布。</div>
+        <form data-form="create-website" style="margin-top:12px">
+          <div class="split">
+            ${field('公司名称', 'companyName', org.name || '', 'text', 'required')}
+            ${field('品牌简称', 'shortName', org.name || '')}
+          </div>
+          <div class="split">
+            ${field('英文名', 'englishName', '')}
+            ${field('品牌标语', 'tagline', '')}
+          </div>
+          ${textareaField('公司简介', 'description', org.introduction || '')}
+          <div class="split">
+            ${field('联系电话', 'phone', org.contactPhone || '')}
+            ${field('邮箱', 'email', '')}
+          </div>
+          <div class="split">
+            ${field('微信', 'wechat', '')}
+            ${field('公司地址', 'address', org.address || '')}
+          </div>
+          <div class="split">
+            ${field('SEO 关键词', 'keywords', '')}
+            ${field('服务 / 业务', 'services', '')}
+          </div>
+          <div class="split">
+            ${field('服务地区', 'serviceArea', '')}
+            <label class="field"><span>站点模板</span>${websiteTemplateSelect(templates, 'default')}</label>
+          </div>
+          ${field('官网域名', 'host', '', 'text', 'placeholder="留空自动分配；自填域名需自行解析并准备证书"')}
+          <div class="row">
+            <label class="small"><input type="checkbox" name="generateWithAi" checked style="width:auto"> 用 AI 生成初稿</label>
+            <label class="small"><input type="checkbox" name="publish" style="width:auto"> 创建后立即发布</label>
+          </div>
+          ${textareaField('AI 补充要求（可选）', 'instructions', '')}
+          <button class="primary" type="submit">创建官网</button>
+        </form>
+      </div>`;
+  }
+
+  function websiteEditHTML(site, templates) {
+    const currentTemplate = site.templateId || 'default';
+    const contentText = JSON.stringify(site.content || {}, null, 2);
+    const templateName = websiteTemplatesOrDefault(templates).find(t => t.id === currentTemplate)?.name || currentTemplate;
+    return `
+      <div class="card">
+        <div class="row">
+          <h3 class="spacer">组织官网</h3>
+          ${pill(site.status || '未发布', site.status === 'Active' ? 'ok' : site.status === 'PanelFailed' ? 'bad' : 'warn')}
+          ${site.siteUrl ? `<a href="${esc(site.siteUrl)}" target="_blank" rel="noreferrer">${esc(site.siteUrl)}</a>` : '<span class="small muted">发布后生成访问地址</span>'}
+        </div>
+        <div class="card-sub">当前模板：${esc(templateName)} · content 保存/发布时会整包推送</div>
+        ${site.lastError ? `<div class="pill bad" style="margin-top:8px">${esc(site.lastError)}</div>` : ''}
+        <form data-form="update-website" style="margin-top:12px">
+          <div class="split">
+            ${field('官网域名', 'host', site.host || '')}
+            <label class="field"><span>站点模板</span>${websiteTemplateSelect(templates, currentTemplate)}</label>
+          </div>
+          ${field('AI 补充要求（可选）', 'instructions', '')}
+          <label class="field"><span>完整 content JSON</span><textarea name="content" class="mono" style="min-height:360px">${esc(contentText)}</textarea></label>
+          <div class="row">
+            <button class="primary" type="submit">保存内容</button>
+            <button type="button" data-action="generate-website">AI 生成初稿</button>
+            <button type="button" data-action="preview-website">预览模板</button>
+            <button type="button" class="primary" data-action="publish-website">发布官网</button>
+          </div>
+        </form>
+      </div>`;
+  }
+
+  function websiteParseContent(text) {
+    let value;
+    try {
+      value = JSON.parse(text || '{}');
+    } catch {
+      throw new Error('官网内容不是有效 JSON');
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new Error('官网内容必须是 JSON 对象');
+    }
+    return value;
+  }
+
+  function previewWebsiteFromForm(form) {
+    const data = Object.fromEntries(new FormData(form));
+    const content = websiteParseContent(data.content);
+    const templates = websiteTemplatesOrDefault(state.data.websiteTemplates);
+    const templateId = data.templateId || state.data.website?.templateId || 'default';
+    const templateName = templates.find(t => t.id === templateId)?.name || templateId;
+    showModal('模板预览', '<iframe id="website-preview-frame" style="width:100%;height:65vh;border:0;border-radius:10px;background:#fff"></iframe>');
+    const frame = document.getElementById('website-preview-frame');
+    if (!frame) return;
+    const doc = frame.contentDocument;
+    doc.open();
+    doc.write(buildWebsitePreviewHTML(content, templateName, templateId));
+    doc.close();
+  }
+
+  function buildWebsitePreviewHTML(content, templateName, templateId) {
+    const brand = content.brand || {};
+    const hero = content.hero || {};
+    const contact = content.contact || {};
+    const stats = Array.isArray(content.stats) ? content.stats.slice(0, 4) : [];
+    const themeClass = String(templateId).toLowerCase().includes('aurora') ? 'theme-aurora' : 'theme-default';
+    const cardList = (items, titleKeys, descKeys) => (Array.isArray(items) ? items : []).slice(0, 6).map(item => {
+      const title = titleKeys.map(key => item?.[key]).find(Boolean) || '';
+      const description = descKeys.map(key => item?.[key]).find(Boolean) || '';
+      return `<article class="card"><h3>${esc(title)}</h3><p>${esc(description)}</p></article>`;
+    }).join('');
+    return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>
+      :root{color-scheme:dark;--bg:#0a0710;--line:rgba(255,255,255,.1);--text:#f7f2f4;--muted:#b7adb7;--rose:#eea2a4}
+      *{box-sizing:border-box}body{margin:0;background:radial-gradient(120% 100% at 20% 0%,#241327 0%,var(--bg) 55%);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;line-height:1.7}
+      .wrap{max-width:1040px;margin:0 auto;padding:32px 28px 64px}.notice{padding:9px 13px;border:1px solid rgba(238,162,164,.28);background:rgba(238,162,164,.07);border-radius:10px;color:var(--muted);font-size:12px;margin-bottom:28px}
+      header{display:flex;gap:14px;align-items:center;padding-bottom:24px;border-bottom:1px solid var(--line)}.mark{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;background:rgba(238,162,164,.12);border:1px solid rgba(238,162,164,.3);color:var(--rose);font-weight:700}
+      .tagline{color:var(--muted);font-size:13px;margin-top:4px}.eyebrow{color:var(--rose);font-size:11px;letter-spacing:.16em;text-transform:uppercase;margin-top:38px}
+      h1{font-size:clamp(34px,6vw,62px);line-height:1.08;letter-spacing:-.045em;margin:10px 0 18px}h1 span{color:var(--rose)}h2{font-size:22px;margin:0 0 16px}h3{font-size:15px;margin:0 0 6px}.lead{max-width:700px;color:var(--muted);font-size:15px}
+      .cta{display:inline-block;margin-top:22px;padding:10px 16px;border-radius:9px;background:var(--rose);color:#1b0c10;font-weight:600;font-size:13px}
+      .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:42px 0}.stat{padding:16px;border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.025)}.stat strong{display:block;font-size:24px;color:var(--rose)}.stat span{font-size:11px;color:var(--muted)}
+      section{margin-top:42px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.card{padding:17px;border:1px solid var(--line);border-radius:13px;background:rgba(255,255,255,.025)}.card p{font-size:12px;color:var(--muted);margin:5px 0 0}
+      .contact{display:flex;flex-wrap:wrap;gap:16px;color:var(--muted);font-size:13px}.contact b{color:var(--text);font-weight:500}footer{margin-top:50px;padding-top:20px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+      body.theme-aurora{background:#f5f8fd;color:#142033}body.theme-aurora .notice{border-color:#dbe6f3;background:#fff;color:#617089}body.theme-aurora header{border-color:#dbe6f3}
+      body.theme-aurora .mark{background:linear-gradient(135deg,#2563eb,#0ea5a4);border:0;color:#fff}body.theme-aurora .tagline,body.theme-aurora .lead,body.theme-aurora .stat span,body.theme-aurora .card p,body.theme-aurora .contact,body.theme-aurora footer{color:#617089}
+      body.theme-aurora .eyebrow,body.theme-aurora h1 span,body.theme-aurora .stat strong{color:#2563eb}body.theme-aurora .cta{background:#2563eb;color:#fff}body.theme-aurora .stat,body.theme-aurora .card{background:#fff;border-color:#dbe6f3;box-shadow:0 20px 60px rgba(28,52,90,.08)}
+    </style></head><body class="${themeClass}"><div class="wrap"><div class="notice">模板内容预览 · ${esc(templateName)} · 最终发布效果以发布引擎生成页面为准</div>
+      <header><div class="mark">${esc(String(brand.name || '企业').slice(0,2))}</div><div><strong>${esc(brand.name || '未命名企业')}</strong><div class="tagline">${esc(brand.tagline || '')}</div></div></header>
+      <div class="eyebrow">${esc(hero.eyebrow || '')}</div><h1>${esc(hero.title || '')}<br><span>${esc(hero.titleAccent || '')}</span></h1><p class="lead">${esc(hero.description || '')}</p>
+      ${hero.primaryCta?.label ? `<span class="cta">${esc(hero.primaryCta.label)}</span>` : ''}
+      ${stats.length ? `<div class="stats">${stats.map(s => `<div class="stat"><strong>${esc(s.value || '')}</strong><span>${esc(s.label || '')}</span></div>`).join('')}</div>` : ''}
+      ${cardList(content.products, ['name','title'], ['summary','description']) ? `<section><h2>核心产品</h2><div class="grid">${cardList(content.products, ['name','title'], ['summary','description'])}</div></section>` : ''}
+      ${cardList(content.solutions, ['title','name'], ['summary','description']) ? `<section><h2>解决方案</h2><div class="grid">${cardList(content.solutions, ['title','name'], ['summary','description'])}</div></section>` : ''}
+      ${cardList(content.cases, ['title','name'], ['summary','description']) ? `<section><h2>客户案例</h2><div class="grid">${cardList(content.cases, ['title','name'], ['summary','description'])}</div></section>` : ''}
+      ${(contact.phone || contact.email || contact.address) ? `<section><h2>联系我们</h2><div class="contact">${contact.phone ? `<span><b>电话</b> ${esc(contact.phone)}</span>` : ''}${contact.email ? `<span><b>邮箱</b> ${esc(contact.email)}</span>` : ''}${contact.address ? `<span><b>地址</b> ${esc(contact.address)}</span>` : ''}</div></section>` : ''}
+      <footer>${esc(brand.description || '')}${content.icp?.number ? `<br>${esc(content.icp.number)}` : ''}</footer></div></body></html>`;
+  }
+
   async function loadPro(main) {
     const status = await api('/api/org/pro/status');
     state.data.pro = status;
@@ -1166,6 +1345,40 @@
       } catch (error) { toast(error.message, true); }
     },
     'geo-tab': (el) => { state.geoTab = el.dataset.tab; loadView(); },
+    'generate-website': async (el) => {
+      const form = el.closest('form');
+      if (!form) return;
+      const data = Object.fromEntries(new FormData(form));
+      const result = await api('/api/org/website/generate', {
+        method: 'POST',
+        body: { instructions: data.instructions || '' },
+        timeout: 300000
+      });
+      const textarea = form.querySelector('textarea[name="content"]');
+      if (textarea) textarea.value = JSON.stringify(result.content || {}, null, 2);
+      toast(`AI 初稿已生成${result.totalCostStones ? `，扣 ${result.totalCostStones} 原石` : ''}`);
+    },
+    'preview-website': (el) => {
+      const form = el.closest('form');
+      if (form) previewWebsiteFromForm(form);
+    },
+    'publish-website': async (el) => {
+      const form = el.closest('form');
+      if (!form) return;
+      const data = Object.fromEntries(new FormData(form));
+      const content = websiteParseContent(data.content);
+      const result = await api('/api/org/website/publish', {
+        method: 'POST',
+        body: {
+          host: data.host || '',
+          templateId: data.templateId || 'default',
+          content
+        },
+        timeout: 300000
+      });
+      toast(result.siteUrl ? `已发布：${result.siteUrl}` : '官网已发布');
+      loadView();
+    },
     'geo-suggest-profile': async () => {
       try {
         const result = await api('/api/org/geo/profile/suggest', { method: 'POST', body: { referenceText: '' }, timeout: 180000 });
@@ -1409,6 +1622,50 @@
       try {
         await api('/api/org/profile', { method: 'PUT', body: data });
         toast('组织资料已保存');
+        loadView();
+      } catch (error) { toast(error.message, true); }
+    },
+    'create-website': async (data) => {
+      try {
+        await api('/api/org/website', {
+          method: 'POST',
+          body: {
+            host: data.host || '',
+            templateId: data.templateId || 'default',
+            companyName: data.companyName || '',
+            shortName: data.shortName || '',
+            englishName: data.englishName || '',
+            tagline: data.tagline || '',
+            description: data.description || '',
+            phone: data.phone || '',
+            email: data.email || '',
+            address: data.address || '',
+            wechat: data.wechat || '',
+            keywords: data.keywords || '',
+            services: data.services || '',
+            serviceArea: data.serviceArea || '',
+            generateWithAi: data.generateWithAi === 'on',
+            instructions: data.instructions || '',
+            publish: data.publish === 'on'
+          },
+          timeout: 300000
+        });
+        toast('官网已创建');
+        loadView();
+      } catch (error) { toast(error.message, true); }
+    },
+    'update-website': async (data) => {
+      try {
+        const content = websiteParseContent(data.content);
+        await api('/api/org/website', {
+          method: 'PUT',
+          body: {
+            host: data.host || '',
+            templateId: data.templateId || 'default',
+            content
+          }
+        });
+        toast('官网内容已保存');
         loadView();
       } catch (error) { toast(error.message, true); }
     },
