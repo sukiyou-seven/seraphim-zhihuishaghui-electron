@@ -3,6 +3,7 @@
 
   const BASE_KEY = 'qtb_base_url';
   const DEFAULT_BASE = 'https://qserver.deepbit001.com';
+  const APP_VERSION = '1.0.10010';
 
   const state = {
     token: '',
@@ -11,6 +12,7 @@
     view: 'home',
     authTab: 'password',
     geoTab: 'content',
+    update: null,
     data: {},
     geo: { profile: null, contents: [], usage: [], audit: null, index: null, push: null },
     ai: { conversations: [], messages: [], conversationId: null, streaming: false },
@@ -164,7 +166,10 @@
       state.user = null;
     }
     render();
-    if (state.user) loadView();
+    if (state.user) {
+      loadView();
+      checkForUpdates(true);
+    }
   }
 
   const NAV = [
@@ -212,7 +217,8 @@
     geo: 'GEO 内容生成、检测与发布',
     website: '组织官网内容、模板与发布',
     pro: 'Pro 会员与原石充值',
-    feedback: '投诉、建议与问题反馈'
+    feedback: '投诉、建议与问题反馈',
+    update: '检查客户端版本与服务器最新构建'
   };
 
   function render() {
@@ -224,7 +230,7 @@
     const name = state.user.organization?.name || '组织';
     const orgName = state.user.organization?.name || '';
     const currentNav = NAV.find(([key]) => key === state.view);
-    const currentLabel = currentNav ? currentNav[1] : '';
+    const currentLabel = currentNav ? currentNav[1] : (state.view === 'update' ? '版本检查' : '');
     app.innerHTML = `
       <div class="app-shell">
         <aside class="sidebar">
@@ -235,18 +241,25 @@
               <p>${esc(orgName)} · ${esc(state.user.memberTypeName || '')}</p>
             </div>
           </div>
-          ${NAV.filter(([,, manageOnly]) => !manageOnly || state.user.canManage).map(([key, label]) => `
-            <button class="nav-item ${state.view === key ? 'active' : ''}" data-nav="${key}">
-              <span class="nav-icon">${NAV_ICONS[key] || '•'}</span>
-              <span>${esc(label)}</span>
-            </button>
-          `).join('')}
+          <div class="sidebar-nav">
+            ${NAV.filter(([,, manageOnly]) => !manageOnly || state.user.canManage).map(([key, label]) => `
+              <button class="nav-item ${state.view === key ? 'active' : ''}" data-nav="${key}">
+                <span class="nav-icon">${NAV_ICONS[key] || '•'}</span>
+                <span>${esc(label)}</span>
+              </button>
+            `).join('')}
+          </div>
           <div class="sidebar-footer">
-            <div class="org">${esc(state.user.nickname || state.user.phone || '')}</div>
-            <div>${esc(state.user.realName || '')}</div>
-            <div class="small">Electron 1.0.10005</div>
-            <div class="row" style="margin-top:8px">
-              <button class="btn-sm" data-action="logout">退出登录</button>
+            <button class="user-trigger" data-action="toggle-user-menu">
+              <span class="avatar">${esc(String(state.user.nickname || state.user.realName || state.user.phone || '企').slice(0, 1))}</span>
+              <span class="user-copy">
+                <strong>${esc(state.user.nickname || state.user.phone || '未命名用户')}</strong>
+                <small>${esc(state.user.realName || '')} · v${APP_VERSION}</small>
+              </span>
+            </button>
+            <div class="user-menu" id="user-menu" hidden>
+              <button data-action="open-update"><span>◌</span>版本检查</button>
+              <button data-action="logout"><span>↪</span>退出登录</button>
             </div>
           </div>
         </aside>
@@ -360,6 +373,7 @@
         case 'geo': await loadGeo(main); break;
         case 'website': await loadWebsite(main); break;
         case 'pro': await loadPro(main); break;
+        case 'update': await loadUpdate(main); break;
         case 'feedback': renderFeedback(main); break;
         default: main.innerHTML = '<div class="empty">未知页面</div>';
       }
@@ -469,6 +483,134 @@
 
   function dashStat(label, value, hint) {
     return `<div class="stat-tile"><div class="stat-value">${esc(value)}</div><div class="stat-label">${esc(label)}</div><div class="stat-hint">${esc(hint)}</div></div>`;
+  }
+
+  function compareVersions(left, right) {
+    const a = String(left || '').split('.').map(value => Number.parseInt(value, 10) || 0);
+    const b = String(right || '').split('.').map(value => Number.parseInt(value, 10) || 0);
+    const length = Math.max(a.length, b.length);
+    for (let index = 0; index < length; index += 1) {
+      const av = a[index] || 0;
+      const bv = b[index] || 0;
+      if (av !== bv) return av > bv ? 1 : -1;
+    }
+    return 0;
+  }
+
+  async function getCurrentVersion() {
+    if (window.desktop?.version) {
+      try {
+        const value = await window.desktop.version();
+        if (value) return String(value);
+      } catch {
+        // 回退到页面内置版本
+      }
+    }
+    return APP_VERSION;
+  }
+
+  async function checkForUpdates(notify = false) {
+    const current = await getCurrentVersion();
+    try {
+      const data = await api('/api/public/releases', { token: '' });
+      const latest = String(data?.latestVersion || '');
+      const versions = Array.isArray(data?.versions) ? data.versions : [];
+      const downloads = Array.isArray(data?.downloads)
+        ? data.downloads.filter(item => item.version === latest)
+        : [];
+      const notes = versions.find(item => item.version === latest)?.notes || '';
+      const available = latest.length > 0 && compareVersions(latest, current) > 0;
+      state.update = {
+        current,
+        latest,
+        notes,
+        downloads,
+        available,
+        checkedAt: new Date(),
+        error: null
+      };
+      if (notify && available) {
+        toast(`发现新版本 ${latest}，可在左下角头像菜单中进入版本检查`);
+      }
+    } catch (error) {
+      state.update = {
+        current,
+        latest: '',
+        notes: '',
+        downloads: [],
+        available: false,
+        checkedAt: new Date(),
+        error: error.message || '版本检查失败'
+      };
+      if (notify) toast('版本检查失败，请稍后在头像菜单重试', true);
+    }
+    return state.update;
+  }
+
+  async function loadUpdate(main) {
+    main.innerHTML = '<div class="card"><div class="empty">正在从服务器检查版本…</div></div>';
+    const update = await checkForUpdates(false);
+    const latest = update.latest || '';
+    const downloadLinks = (update.downloads || []).map(item => {
+      const size = Number(item.fileSize || 0);
+      const sizeText = size > 0 ? `${(size / 1024 / 1024).toFixed(1)} MB` : '';
+      const href = apiUrl(item.downloadUrl || '/');
+      return `<a class="update-download" href="${esc(href)}" target="_blank" rel="noreferrer">
+        <strong>${esc(item.platformLabel || item.platform || '下载')}</strong>
+        <span>${esc(item.fileName || '')}${sizeText ? ` · ${sizeText}` : ''}</span>
+      </a>`;
+    }).join('');
+
+    let status;
+    if (!latest) {
+      status = '<span class="pill warn">服务器暂无版本信息</span>';
+    } else if (update.available) {
+      status = `<span class="pill info">发现新版本 ${esc(latest)}</span>`;
+    } else if (compareVersions(update.current, latest) > 0) {
+      status = '<span class="pill warn">当前版本高于服务器版本</span>';
+    } else {
+      status = '<span class="pill ok">已是最新版本</span>';
+    }
+
+    main.innerHTML = `
+      <div class="update-page">
+        <div class="card update-hero">
+          <div>
+            <div class="eyebrow">CLIENT UPDATE</div>
+            <h2>软件版本检查</h2>
+            <p class="card-sub">版本信息从当前服务器读取，只提醒有可用更新，不会自动下载或安装。</p>
+          </div>
+          <div class="update-current">
+            <span>当前版本</span>
+            <strong>v${esc(update.current)}</strong>
+            ${status}
+          </div>
+        </div>
+        <div class="update-grid">
+          <div class="card">
+            <h3>服务器最新版本</h3>
+            <div class="update-latest">${latest ? `v${esc(latest)}` : '—'}</div>
+            <div class="small muted">检查时间：${fmtDate(update.checkedAt)}</div>
+            ${update.error ? `<div class="pill bad" style="margin-top:10px">${esc(update.error)}</div>` : ''}
+            <div class="row" style="margin-top:14px">
+              <button data-action="refresh-update">重新检查</button>
+            </div>
+          </div>
+          <div class="card">
+            <h3>更新说明</h3>
+            <div class="update-notes">${esc(update.notes || '服务器暂未提供本次版本的更新说明。')}</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row">
+            <h3 class="spacer">服务器安装包</h3>
+            <span class="small muted">点击后使用系统浏览器打开服务器下载地址</span>
+          </div>
+          <div class="update-downloads">
+            ${downloadLinks || '<div class="empty">服务器暂未提供该版本的安装包</div>'}
+          </div>
+        </div>
+      </div>`;
   }
 
   async function loadHome(main) {
@@ -1388,6 +1530,7 @@
     render();
     await loadView();
     closeModal();
+    checkForUpdates(true);
   }
 
   async function sendAIMessage(content) {
@@ -1469,6 +1612,18 @@
     'close-modal': () => closeModal(),
     'logout': async () => { await clearToken(); state.user = null; render(); },
     'refresh': () => loadView(),
+    'toggle-user-menu': () => {
+      const menu = document.getElementById('user-menu');
+      if (menu) menu.hidden = !menu.hidden;
+    },
+    'open-update': () => {
+      const menu = document.getElementById('user-menu');
+      if (menu) menu.hidden = true;
+      state.view = 'update';
+      render();
+      loadView();
+    },
+    'refresh-update': () => loadView(),
     'fullscreen-dashboard': () => {
       if (!document.fullscreenElement) {
         document.documentElement.requestFullscreen?.().catch(() => toast('当前环境不支持全屏', true));
@@ -2029,6 +2184,10 @@
   });
 
   document.addEventListener('click', (event) => {
+    if (!event.target.closest('.sidebar-footer')) {
+      const userMenu = document.getElementById('user-menu');
+      if (userMenu) userMenu.hidden = true;
+    }
     const nav = event.target.closest('[data-nav]');
     if (nav) {
       navTo(nav.dataset.nav);
