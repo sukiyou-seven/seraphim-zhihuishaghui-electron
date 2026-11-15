@@ -68,15 +68,37 @@ function createWindow() {
   });
 }
 
+// 同一个安装包正在下载时复用同一个任务，避免重复点击触发多次并发下载。
+const activeDownloads = new Map();
+
+function updateDownloadKey(url, fileName) {
+  return JSON.stringify([String(url || ''), String(fileName || '')]);
+}
+
 async function downloadUpdate(event, payload) {
   const url = String(payload?.url || '');
   if (!/^https?:\/\//i.test(url)) {
     throw new Error('无效的下载地址');
   }
 
+  const fileName = String(payload?.fileName || '');
+  const key = updateDownloadKey(url, fileName);
+  const running = activeDownloads.get(key);
+  if (running) return running;
+
+  const task = runDownload(event, url, fileName, key);
+  activeDownloads.set(key, task);
+  try {
+    return await task;
+  } finally {
+    activeDownloads.delete(key);
+  }
+}
+
+async function runDownload(event, url, fileName, key) {
   const downloads = app.getPath('downloads');
   fs.mkdirSync(downloads, { recursive: true });
-  const safeName = path.basename(String(payload?.fileName || 'qitongbao-update.bin'));
+  const safeName = path.basename(fileName) || 'qitongbao-update.bin';
   let target = path.join(downloads, safeName);
   if (fs.existsSync(target)) {
     const parsed = path.parse(safeName);
@@ -88,21 +110,39 @@ async function downloadUpdate(event, payload) {
     throw new Error(`下载失败：HTTP ${response.status}`);
   }
 
+  const sender = event.sender;
+  const reportProgress = (progress) => {
+    if (!sender || sender.isDestroyed()) return;
+    try {
+      sender.send('update:progress', { key, ...progress });
+    } catch {
+      // 窗口已关闭，忽略进度推送
+    }
+  };
+
   const total = Number(response.headers.get('content-length') || 0);
   const reader = response.body.getReader();
   const output = fs.createWriteStream(target);
   let received = 0;
+  let streamError = null;
+  output.on('error', (error) => { streamError = error; });
 
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (streamError) throw streamError;
       const chunk = Buffer.from(value);
       received += chunk.byteLength;
       if (!output.write(chunk)) {
-        await new Promise((resolve) => output.once('drain', resolve));
+        await new Promise((resolve, reject) => {
+          const onDrain = () => { output.off('error', onError); resolve(); };
+          const onError = (error) => { output.off('drain', onDrain); reject(error); };
+          output.once('drain', onDrain);
+          output.once('error', onError);
+        });
       }
-      event.sender.send('update:progress', {
+      reportProgress({
         received,
         total,
         percent: total > 0 ? Math.min(100, Math.round((received / total) * 100)) : null
@@ -112,13 +152,14 @@ async function downloadUpdate(event, payload) {
       output.once('error', reject);
       output.end(resolve);
     });
+    if (streamError) throw streamError;
   } catch (error) {
     output.destroy();
     try { fs.unlinkSync(target); } catch { /* ignore */ }
     throw error;
   }
 
-  return { path: target, size: received };
+  return { key, path: target, size: received };
 }
 
 app.whenReady().then(() => {

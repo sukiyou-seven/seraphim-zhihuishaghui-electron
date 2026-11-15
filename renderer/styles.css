@@ -92,7 +92,9 @@ a:hover { text-decoration: underline; }
 .card-sub { color: var(--text-3); font-size: 11px; line-height: 1.65; }
 .card > table { margin-top: 10px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.row {
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+}
 .row-end { justify-content: flex-end; }
 .spacer { flex: 1; }
 .muted { color: var(--text-3); }

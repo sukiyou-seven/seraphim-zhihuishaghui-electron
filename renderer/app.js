@@ -3,7 +3,7 @@
 
   const BASE_KEY = 'qtb_base_url';
   const DEFAULT_BASE = 'https://qserver.deepbit001.com';
-  const APP_VERSION = '1.0.10014';
+  const APP_VERSION = '1.0.10015';
 
   const state = {
     token: '',
@@ -13,6 +13,7 @@
     authTab: 'password',
     geoTab: 'content',
     update: null,
+    downloads: {},
     data: {},
     geo: { profile: null, contents: [], usage: [], audit: null, index: null, push: null },
     ai: { conversations: [], messages: [], conversationId: null, streaming: false },
@@ -410,6 +411,13 @@
     return `<label class="field"><span>${esc(label)}</span><textarea name="${esc(name)}" ${extra}>${esc(value ?? '')}</textarea></label>`;
   }
 
+  function selectField(label, name, options, value = '', extra = '') {
+    const opts = options.map(([optionValue, text]) =>
+      `<option value="${esc(optionValue)}" ${String(optionValue) === String(value) ? 'selected' : ''}>${esc(text)}</option>`
+    ).join('');
+    return `<label class="field"><span>${esc(label)}</span><select name="${esc(name)}" ${extra}>${opts}</select></label>`;
+  }
+
   function dataKey(name) {
     return (state.data[name] || []);
   }
@@ -659,6 +667,47 @@
     return APP_VERSION;
   }
 
+  function downloadKey(url, fileName) {
+    return JSON.stringify([String(url || ''), String(fileName || '')]);
+  }
+
+  function downloadProgressText(record) {
+    if (!record) return '准备下载…';
+    const percent = record.percent;
+    if (percent !== null && percent !== undefined) return `下载中 ${percent}%`;
+    if (record.received > 0) return `下载中 ${(record.received / 1024 / 1024).toFixed(1)} MB`;
+    return '准备下载…';
+  }
+
+  function applyDownloadRecord(el, record) {
+    if (!el || !record) return;
+    const stateText = el.querySelector('.update-download-state');
+    if (record.status === 'downloading') {
+      el.disabled = true;
+      el.classList.remove('done');
+      el.dataset.action = 'download-update';
+      if (stateText) stateText.textContent = downloadProgressText(record);
+    } else if (record.status === 'done' && record.path) {
+      el.disabled = false;
+      el.classList.add('done');
+      el.dataset.action = 'open-downloaded';
+      el.dataset.path = record.path;
+      if (stateText) stateText.textContent = '已下载，点击打开安装包';
+    } else if (record.status === 'error') {
+      el.disabled = false;
+      el.classList.remove('done');
+      el.dataset.action = 'download-update';
+      delete el.dataset.path;
+      if (stateText) stateText.textContent = '下载失败，点击重试';
+    }
+  }
+
+  function refreshDownloadButtons() {
+    $$('[data-download-key]').forEach((el) => {
+      applyDownloadRecord(el, state.downloads[el.dataset.downloadKey]);
+    });
+  }
+
   async function checkForUpdates(notify = false) {
     const current = await getCurrentVersion();
     try {
@@ -705,9 +754,11 @@
       const size = Number(item.fileSize || 0);
       const sizeText = size > 0 ? `${(size / 1024 / 1024).toFixed(1)} MB` : '';
       const href = apiUrl(item.downloadUrl || '/');
-      return `<button type="button" class="update-download" data-action="download-update" data-url="${esc(href)}" data-name="${esc(item.fileName || '')}">
+      const fileName = item.fileName || '';
+      const key = downloadKey(href, fileName);
+      return `<button type="button" class="update-download" data-action="download-update" data-download-key="${esc(key)}" data-url="${esc(href)}" data-name="${esc(fileName)}">
         <strong>${esc(item.platformLabel || item.platform || '下载')}</strong>
-        <span>${esc(item.fileName || '')}${sizeText ? ` · ${sizeText}` : ''}</span>
+        <span>${esc(fileName)}${sizeText ? ` · ${sizeText}` : ''}</span>
         <span class="update-download-state">在应用内下载</span>
       </button>`;
     }).join('');
@@ -762,6 +813,9 @@
           </div>
         </div>
       </div>`;
+
+    // 页面重建后恢复已有的下载状态（下载中 / 已下载 / 下载失败）。
+    refreshDownloadButtons();
   }
 
   async function loadHome(main) {
@@ -907,8 +961,10 @@
         <h3>会员类型管理</h3>
         <div class="card-sub">会长和秘书长是内置身份，不能删除；其他类型可自由增加或删除。仍有成员使用的类型需要先调整成员身份。</div>
         <form data-form="add-member-type" class="row" style="margin-top:12px">
-          <input name="name" placeholder="新身份名称，例如：理事" required style="flex:1">
-          <button class="primary" type="submit">新增身份</button>
+          <div  style="display: flex;justify-content: space-between;width: 100%">
+          <input name="name" placeholder="新身份名称，例如：理事" required style="width: 200px">
+          <button class="primary" type="submit" >新增身份</button>
+          </div>
         </form>
         <table style="margin-top:10px">
           <tr><th>名称</th><th>代码</th><th>成员数</th><th>操作</th></tr>
@@ -945,7 +1001,7 @@
               <td>${esc(m.nickname)}<div class="small muted">${esc(m.realName)}</div></td>
               <td>${esc(m.phone)}</td>
               <td>
-                <select data-member-type="${m.id}">
+                <select data-member-type="${m.id}" disabled="${m.name === '会长'| m.name==='秘书长'}">
                   ${types.map(t => `<option value="${t.id}" ${t.id === m.memberTypeId ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}
                 </select>
               </td>
@@ -1361,7 +1417,10 @@
             <div class="small muted">这些链接会写入公开站的 sameAs 结构化数据。</div>
           </div>
           <div class="row">
-            <label class="small"><input type="checkbox" name="isPublished" ${p.isPublished ? 'checked' : ''} style="width:auto"> 公开</label>
+            <div style="display: flex;justify-content: center;align-items: center">
+              <input type="checkbox" name="isPublished" ${p.isPublished ? 'checked' : ''} style="width:auto">
+              <label class="small">公开</label>
+            </div>
             <span class="spacer"></span>
             <button type="button" data-action="geo-suggest-profile">AI 完善资料</button>
             <button class="primary" type="submit">保存 GEO 资料</button>
@@ -1387,11 +1446,11 @@
           <tr><th>标题</th><th>目标问题</th><th>评分</th><th>状态</th><th>操作</th></tr>
           ${contents.map(c => `
             <tr>
-              <td>${esc(c.title)}</td>
-              <td class="small muted">${esc(c.targetQuestion)}</td>
-              <td>${c.score ?? '-'}</td>
-              <td>${pill(c.status === 'Published' ? '已发布' : c.status === 'Archived' ? '已下线' : '草稿', c.status === 'Published' ? 'ok' : '')}</td>
-              <td class="row">
+              <td style="width: 300px">${esc(c.title)}</td>
+              <td  style="width: 300px" class="small muted">${esc(c.targetQuestion)}</td>
+              <td  style="width: 50px">${c.score ?? '-'}</td>
+              <td style="width: 80px">${pill(c.status === 'Published' ? '已发布' : c.status === 'Archived' ? '已下线' : '草稿', c.status === 'Published' ? 'ok' : '')}</td>
+              <td  class="row">
                 <button class="btn-sm" data-action="geo-diagnose" data-id="${c.id}">诊断</button>
                 <button class="btn-sm" data-action="geo-improve" data-id="${c.id}">AI 优化</button>
                 ${c.status !== 'Published' ? `<button class="btn-sm" data-action="geo-publish" data-id="${c.id}">发布</button>` : ''}
@@ -1679,13 +1738,21 @@
       </div>`;
   }
 
+  const FEEDBACK_TYPES = [
+    ['suggestion', '建议'],
+    ['complaint', '投诉'],
+    ['bug', 'BUG 上报'],
+    ['question', '咨询'],
+    ['other', '其他']
+  ];
+
   function renderFeedback(main) {
     main.innerHTML = `
       <div class="card">
         <h3>投诉与建议</h3>
         <form data-form="submit-feedback">
           <div class="split">
-            ${field('类型', 'type', '建议')}
+            ${selectField('类型', 'type', FEEDBACK_TYPES, 'suggestion')}
             ${field('标题', 'title')}
           </div>
           ${textareaField('问题描述', 'description')}
@@ -1887,33 +1954,24 @@
       }
       const url = el.dataset.url;
       const fileName = el.dataset.name;
-      const stateText = el.querySelector('.update-download-state');
-      el.disabled = true;
-      if (stateText) stateText.textContent = '准备下载…';
+      const key = el.dataset.downloadKey || downloadKey(url, fileName);
+      // 已有同一安装包的下载任务时直接忽略，避免重复点击并发下载。
+      if (state.downloads[key]?.status === 'downloading') return;
 
-      const unsubscribe = window.desktop.onUpdateProgress?.((progress) => {
-        if (!stateText) return;
-        if (progress?.percent !== null && progress?.percent !== undefined) {
-          stateText.textContent = `下载中 ${progress.percent}%`;
-        } else {
-          stateText.textContent = `下载中 ${(Number(progress?.received || 0) / 1024 / 1024).toFixed(1)} MB`;
-        }
-      });
+      state.downloads[key] = { status: 'downloading', percent: null, received: 0, total: 0 };
+      refreshDownloadButtons();
 
       try {
         const result = await window.desktop.downloadUpdate(url, fileName);
-        el.disabled = false;
-        el.classList.add('done');
-        el.dataset.action = 'open-downloaded';
-        el.dataset.path = result.path;
-        if (stateText) stateText.textContent = '已下载，点击打开安装包';
+        const finalKey = result?.key || key;
+        if (finalKey !== key) delete state.downloads[key];
+        state.downloads[finalKey] = { status: 'done', path: result.path };
+        refreshDownloadButtons();
         toast(`安装包已下载到 ${result.path}`);
       } catch (error) {
-        el.disabled = false;
-        if (stateText) stateText.textContent = '下载失败，点击重试';
+        state.downloads[key] = { status: 'error' };
+        refreshDownloadButtons();
         toast(error.message || '下载失败', true);
-      } finally {
-        unsubscribe?.();
       }
     },
     'open-downloaded': async (el) => {
@@ -2529,6 +2587,18 @@
     } catch (error) {
       toast(error.message, true);
     }
+  });
+
+  // 全局只订阅一次下载进度：状态记在 state 里，切换页面回来也能恢复。
+  window.desktop?.onUpdateProgress?.((progress) => {
+    const key = progress?.key;
+    if (!key) return;
+    const record = state.downloads[key];
+    if (!record || record.status !== 'downloading') return;
+    record.percent = progress.percent ?? null;
+    record.received = Number(progress.received || 0);
+    record.total = Number(progress.total || 0);
+    refreshDownloadButtons();
   });
 
   window.addEventListener('DOMContentLoaded', init);
