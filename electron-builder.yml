@@ -10,6 +10,13 @@ files:
   - preload.cjs
   - renderer/**/*
   - package.json
+extraResources:
+  - from: resources/icon.png
+    to: icon.png
+mac:
+  icon: resources/icon.png
+  category: public.app-category.business
+
 win:
   icon: resources/icon.png
   target:

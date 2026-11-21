@@ -1,6 +1,10 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+const envArg = process.argv.find((arg) => arg.startsWith('--app-env='));
+const appEnv = envArg ? envArg.split('=')[1] : 'production';
+
 contextBridge.exposeInMainWorld('desktop', {
+  env: appEnv,
   getToken: () => ipcRenderer.invoke('auth:get-token'),
   setToken: (token) => ipcRenderer.invoke('auth:set-token', token),
   clearToken: () => ipcRenderer.invoke('auth:clear-token'),

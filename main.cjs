@@ -35,6 +35,12 @@ function writeToken(token) {
   }
 }
 
+function appIconPath() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'icon.png')
+    : path.join(__dirname, 'resources', 'icon.png');
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -42,13 +48,16 @@ function createWindow() {
     minWidth: 1040,
     minHeight: 680,
     title: '企通宝',
+    icon: appIconPath(),
     autoHideMenuBar: true,
     backgroundColor: '#10100f',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      // app.isPackaged 只能在主进程读取，注入给 preload/renderer 判断当前环境。
+      additionalArguments: [`--app-env=${app.isPackaged ? 'production' : 'development'}`]
     }
   });
 
@@ -163,6 +172,11 @@ async function runDownload(event, url, fileName, key) {
 }
 
 app.whenReady().then(() => {
+  // macOS 开发模式默认显示 Electron 图标，这里显式换成应用图标。
+  if (process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(appIconPath());
+  }
+
   ipcMain.handle('auth:get-token', () => readToken());
   ipcMain.handle('auth:set-token', (_event, token) => writeToken(token));
   ipcMain.handle('auth:clear-token', () => writeToken(''));

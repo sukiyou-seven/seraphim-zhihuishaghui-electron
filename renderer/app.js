@@ -1,21 +1,41 @@
 (() => {
   'use strict';
 
-  const BASE_KEY = 'qtb_base_url';
-  const DEFAULT_BASE = 'https://qserver.deepbit001.com';
-  const APP_VERSION = '1.0.10015';
+  // 开发（electron .）连本地服务，打包后的生产版本连线上；地址按环境分别记忆。
+  const APP_ENV = window.desktop?.env === 'development' ? 'development' : 'production';
+  const IS_DEV = APP_ENV === 'development';
+  const BASE_KEY = `qtb_base_url_${APP_ENV}`;
+  const LEGACY_BASE_KEY = 'qtb_base_url';
+  const DEFAULT_BASE = IS_DEV ? 'http://127.0.0.1:32500' : 'https://qserver.deepbit001.com';
+  const APP_VERSION = '1.0.10020';
+
+  function initialBaseUrl() {
+    const saved = localStorage.getItem(BASE_KEY);
+    if (saved) return saved;
+
+    // 兼容旧版本共用的 key：生产环境沿用已保存的线上地址，但忽略开发时留下的本地地址。
+    if (!IS_DEV) {
+      const legacy = localStorage.getItem(LEGACY_BASE_KEY);
+      if (legacy && !/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/i.test(legacy)) {
+        return legacy;
+      }
+    }
+
+    return DEFAULT_BASE;
+  }
 
   const state = {
     token: '',
     user: null,
-    baseUrl: localStorage.getItem(BASE_KEY) || DEFAULT_BASE,
+    baseUrl: initialBaseUrl(),
     view: 'home',
     authTab: 'password',
-    geoTab: 'content',
+    geoTab: 'profile',
     update: null,
     downloads: {},
     data: {},
-    geo: { profile: null, contents: [], usage: [], audit: null, index: null, push: null },
+    geo: { profile: null, contents: [], usage: [], usagePage: 1, usageTotal: 0, usageTotalPages: 1, audit: null, index: null, push: null },
+    platformContent: { platforms: [], contents: [], platform: 'news', draft: null },
     ai: { conversations: [], messages: [], conversationId: null, streaming: false },
     busy: false
   };
@@ -39,6 +59,13 @@
     return date.toLocaleString('zh-CN', { hour12: false });
   }
 
+  function fmtDateOnly(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleDateString('zh-CN');
+  }
+
   function fmtDay(value) {
     if (!value) return '';
     const date = new Date(value);
@@ -58,9 +85,10 @@
     toast.timer = setTimeout(() => { el.hidden = true; }, 3200);
   }
 
-  function showModal(title, html) {
+  function showModal(title, html, options = {}) {
+    const dismissible = options.dismissible !== false;
     $('#modal-root').innerHTML = `
-      <div class="modal-backdrop" data-modal-backdrop>
+      <div class="modal-backdrop" data-modal-backdrop ${dismissible ? '' : 'data-modal-locked'}>
         <div class="modal" role="dialog" aria-modal="true">
           <div class="row"><h3 class="spacer">${esc(title)}</h3><button class="btn-sm" data-action="close-modal">关闭</button></div>
           <div>${html}</div>
@@ -176,6 +204,7 @@
   const NAV = [
     ['home', '首页'],
     ['dashboard', '大屏'],
+    ['ai', 'DeepBit AI助手'],
     ['annual', '年度总结'],
     ['opportunities', '商机'],
     ['enterprises', '企业信息'],
@@ -186,8 +215,8 @@
     ['preferred', '温商优选'],
     ['pro', 'Pro 会员'],
     ['geo', 'GEO 优化', true],
-    ['website', '官网', true],
-    ['ai', 'DeepBit AI助手']
+    ['platformContent', 'GEO平台内容', true],
+    ['website', '官网', true]
   ];
 
   const VIEW_LABELS = {
@@ -203,7 +232,7 @@
   const NAV_ICONS = {
     home: '⌂', dashboard: '▦', annual: '◔', personal: '◉', org: '▣', memberTypes: '▦', memberIdentity: '♙', joinReview: '✓',
     activities: '◷', opportunities: '▤', procurements: '▥', courtesy: '♡',
-    preferred: '✦', enterprises: '▦', messages: '✉', ai: '◌', geo: '◎', website: '◍',
+    preferred: '✦', enterprises: '▦', messages: '✉', ai: '◌', geo: '◎', platformContent: '✈', website: '◍',
     pro: '♛', feedback: '!', update: '↻'
   };
   const NAV_DESCRIPTIONS = {
@@ -223,6 +252,7 @@
     enterprises: '查询已入驻企业信息',
     messages: '平台通知与站内消息',
     ai: 'DeepBit AI 助手',    geo: 'GEO 内容生成、检测与发布',
+    platformContent: '为权威发布平台生成、编辑和删除本地内容',
     website: '组织官网内容、模板与发布',
     pro: 'Pro 会员与原石充值',
     feedback: '投诉、建议与问题反馈',
@@ -392,6 +422,7 @@
         case 'messages': await loadMessages(main); break;
         case 'ai': await loadAI(main); break;
         case 'geo': await loadGeo(main); break;
+        case 'platformContent': await loadPlatformContent(main); break;
         case 'website': await loadWebsite(main); break;
         case 'pro': await loadPro(main); break;
         case 'update': await loadUpdate(main); break;
@@ -519,7 +550,7 @@
       safe('/api/org/opportunities/mine'),
       safe('/api/org/activities/mine'),
       safe('/api/org/procurements/mine'),
-      safe('/api/org/courtesy-notes'),
+      safe('/api/org/courtesy-notes?page=1&pageSize=500'),
       safe('/api/org/geo/contents'),
       safe('/api/org/website'),
       safe('/api/org/pro/status')
@@ -529,7 +560,7 @@
     const opportunityList = asArray(opportunities);
     const activityList = asArray(activities);
     const procurementList = asArray(procurements);
-    const noteList = asArray(notes);
+    const noteList = asArray(notes?.items ?? notes);
     const geoList = asArray(geo);
 
     const dateOf = (item, keys) => {
@@ -861,26 +892,44 @@
   }
 
   async function loadPersonal(main) {
+    const tab = state.data.personalTab === 'password' ? 'password' : 'profile';
+    const user = state.user || {};
     main.innerHTML = `
-      <div class="split">
-        <div class="card">
-          <h3>个人资料</h3>
-          <form data-form="save-personal">
-            ${field('昵称', 'nickname', state.user.nickname)}
-            ${field('真实姓名', 'realName', state.user.realName)}
-            ${field('手机号', 'phone', state.user.phone, 'text', 'disabled')}
-            <button class="primary" type="submit">保存</button>
-          </form>
-        </div>
-        <div class="card">
-          <h3>修改密码</h3>
-          <form data-form="change-password">
-            ${field('当前密码', 'currentPassword', '', 'password')}
-            ${field('新密码', 'newPassword', '', 'password')}
-            ${field('确认新密码', 'confirmPassword', '', 'password')}
-            <button class="primary" type="submit">修改密码</button>
-          </form>
-        </div>
+      <div class="tabs">
+        <button class="tab ${tab === 'profile' ? 'active' : ''}" data-action="personal-tab" data-tab="profile">资料</button>
+        <button class="tab ${tab === 'password' ? 'active' : ''}" data-action="personal-tab" data-tab="password">改密码</button>
+      </div>
+      ${tab === 'profile' ? personalProfileHTML(user) : personalPasswordHTML(user)}`;
+  }
+
+  function personalProfileHTML(user) {
+    return `
+      <div class="card">
+        <div class="row"><h3 class="spacer">个人资料</h3><span class="small muted">手机号 ${esc(user.phone)} 不可修改</span></div>
+        <form data-form="save-personal">
+          <div class="split">
+            ${field('昵称', 'nickname', user.nickname)}
+            ${field('手机号', 'phone', user.phone, 'text', 'disabled')}
+          </div>
+          ${PERSONAL_GROUPS.map(group => `
+            <h4 style="margin:14px 0 8px">${esc(group.title)}</h4>
+            ${courtesyGroupFieldsHTML(group.fields, user)}
+          `).join('')}
+          <button class="primary" type="submit">保存</button>
+        </form>
+      </div>`;
+  }
+
+  function personalPasswordHTML(user) {
+    return `
+      <div class="card">
+        <h3>修改密码</h3>
+        <form data-form="change-password">
+          <label class="field"><span>短信验证码（发送到 ${esc(user.phone)}）</span><div class="row"><input name="code" placeholder="6 位验证码" autocomplete="off" style="flex:1"><button type="button" class="btn-sm" data-action="send-sms" data-scene="change-password">发送验证码</button></div></label>
+          ${field('新密码', 'newPassword', '', 'password')}
+          ${field('确认新密码', 'confirmPassword', '', 'password')}
+          <button class="primary" type="submit">修改密码</button>
+        </form>
       </div>`;
   }
 
@@ -1185,33 +1234,286 @@
       </div>`;
   }
 
+  const COURTESY_DATE_FIELDS = ['solarBirthday', 'metAt', 'lastContactAt', 'nextFollowUpAt', 'eventTime'];
+  const COURTESY_REQUIRED = new Set(['title', 'personName', 'eventTime']);
+  const COURTESY_GROUPS = [
+    {
+      title: '基本信息',
+      fields: [
+        ['title', '标题'],
+        ['personName', '姓名'],
+        ['gender', '性别', 'select', [['', '未填写'], ['男', '男'], ['女', '女'], ['其他', '其他']]],
+        ['solarBirthday', '公历生日', 'date'],
+        ['lunarBirthday', '农历生日'],
+        ['zodiac', '属相'],
+        ['nativePlace', '籍贯'],
+        ['currentResidence', '现居地']
+      ]
+    },
+    {
+      title: '关系信息',
+      fields: [
+        ['relationSource', '关系来源'],
+        ['relationLevel', '关系等级'],
+        ['metAt', '认识时间', 'date'],
+        ['mutualFriends', '共同好友'],
+        ['introducer', '中间人'],
+        ['meetingFrequency', '见面频率']
+      ]
+    },
+    {
+      title: '联系方式与职业',
+      fields: [
+        ['phone', '手机号'],
+        ['weChat', '微信'],
+        ['company', '单位'],
+        ['position', '岗位'],
+        ['industry', '行业']
+      ]
+    },
+    {
+      title: '家庭情况',
+      fields: [
+        ['maritalStatus', '婚姻状态'],
+        ['spouseInfo', '配偶信息'],
+        ['childrenInfo', '子女情况']
+      ]
+    },
+    {
+      title: '个人偏好',
+      fields: [
+        ['interests', '兴趣', 'textarea'],
+        ['hobbies', '爱好', 'textarea'],
+        ['specialty', '特长'],
+        ['dietHabits', '饮食习惯'],
+        ['dietaryRestrictions', '忌口过敏'],
+        ['smokingDrinking', '烟酒偏好'],
+        ['taboos', '禁忌雷区'],
+        ['personalityTags', '性格标签'],
+        ['habits', '习惯', 'textarea']
+      ]
+    },
+    {
+      title: '资源与往来',
+      fields: [
+        ['resources', '拥有资源', 'textarea'],
+        ['canProvide', '能提供帮助', 'textarea'],
+        ['oweSituation', '欠人情情况', 'textarea'],
+        ['giftsGiven', '送礼送出', 'textarea'],
+        ['giftsReceived', '收礼收到', 'textarea'],
+        ['conversationPoints', '谈话要点', 'textarea'],
+        ['todoItems', '待办事项', 'textarea']
+      ]
+    },
+    {
+      title: '跟进与归档',
+      fields: [
+        ['eventTime', '记录时间', 'date'],
+        ['lastContactAt', '上次联系时间', 'date'],
+        ['nextFollowUpAt', '下次跟进提醒', 'date'],
+        ['importantDates', '重要纪念日'],
+        ['tags', '标签'],
+        ['priority', '优先级', 'select', [['', '未设置'], ['高', '高'], ['中', '中'], ['低', '低']]],
+        ['archiveStatus', '归档状态', 'select', [['', '正常'], ['已归档', '已归档']]]
+      ]
+    },
+    {
+      title: '内容与备注',
+      fields: [
+        ['content', '内容', 'textarea'],
+        ['remarks', '备注', 'textarea']
+      ]
+    }
+  ];
+
+  const PERSONAL_GROUPS = [
+    {
+      title: '基本信息',
+      fields: [
+        ['realName', '姓名'],
+        ['gender', '性别', 'select', [['', '未填写'], ['男', '男'], ['女', '女'], ['其他', '其他']]],
+        ['solarBirthday', '公历生日', 'date'],
+        ['lunarBirthday', '农历生日'],
+        ['zodiac', '属相'],
+        ['nativePlace', '籍贯'],
+        ['currentResidence', '现居地']
+      ]
+    },
+    {
+      title: '联系方式与职业',
+      fields: [
+        ['weChat', '微信'],
+        ['company', '单位'],
+        ['position', '岗位'],
+        ['industry', '行业']
+      ]
+    },
+    {
+      title: '家庭情况',
+      fields: [
+        ['maritalStatus', '婚姻状态'],
+        ['spouseInfo', '配偶信息'],
+        ['childrenInfo', '子女情况']
+      ]
+    },
+    {
+      title: '个人偏好',
+      fields: [
+        ['interests', '兴趣', 'textarea'],
+        ['hobbies', '爱好', 'textarea'],
+        ['specialty', '特长'],
+        ['dietHabits', '饮食习惯'],
+        ['dietaryRestrictions', '忌口过敏'],
+        ['smokingDrinking', '烟酒偏好'],
+        ['taboos', '禁忌雷区'],
+        ['personalityTags', '性格标签'],
+        ['habits', '习惯', 'textarea']
+      ]
+    },
+    {
+      title: '资源与标签',
+      fields: [
+        ['resources', '拥有资源', 'textarea'],
+        ['canProvide', '能提供帮助', 'textarea'],
+        ['tags', '标签']
+      ]
+    },
+    {
+      title: '简介与备注',
+      fields: [
+        ['content', '内容', 'textarea'],
+        ['remarks', '备注', 'textarea']
+      ]
+    }
+  ];
+
+  function toDateInputValue(value) {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+  }
+
+  function courtesyFieldHTML(config, note) {
+    const [name, label, type = 'text', options] = config;
+    const value = note?.[name] ?? '';
+    const required = COURTESY_REQUIRED.has(name) ? 'required' : '';
+    if (type === 'date') {
+      return field(label, name, toDateInputValue(value), 'date', required);
+    }
+    if (type === 'select') {
+      return selectField(label, name, options, value || '', required);
+    }
+    if (type === 'textarea') {
+      return textareaField(label, name, value, 'rows="3"');
+    }
+    return field(label, name, value, 'text', required);
+  }
+
+  function courtesyGroupFieldsHTML(fields, note) {
+    let html = '';
+    let pending = [];
+    const flush = () => {
+      if (!pending.length) return;
+      html += `<div class="split">${pending.join('')}</div>`;
+      pending = [];
+    };
+
+    for (const config of fields) {
+      const item = courtesyFieldHTML(config, note);
+      if (config[2] === 'textarea') {
+        flush();
+        html += item;
+      } else {
+        pending.push(item);
+        if (pending.length === 2) flush();
+      }
+    }
+
+    flush();
+    return html;
+  }
+
+  function courtesyFormHTML(note) {
+    return `
+      <form data-form="create-courtesy">
+        ${COURTESY_GROUPS.map(group => `
+          <h4 style="margin:14px 0 8px">${esc(group.title)}</h4>
+          ${courtesyGroupFieldsHTML(group.fields, note)}
+        `).join('')}
+        <div class="row" style="margin-top:12px">
+          <button class="primary" type="submit">${note ? '保存修改' : '保存'}</button>
+          ${note ? '<button type="button" data-action="cancel-courtesy-edit">取消编辑</button>' : ''}
+        </div>
+      </form>`;
+  }
+
   async function loadCourtesy(main) {
-    const notes = await api('/api/org/courtesy-notes');
+    const page = Math.max(1, Number(state.data.courtesyPage) || 1);
+    const result = await api(`/api/org/courtesy-notes?page=${page}&pageSize=20`);
+    const notes = Array.isArray(result?.items) ? result.items : [];
+    state.data.courtesyNotes = notes;
+    state.data.courtesyTotal = Number(result?.total) || notes.length;
+    state.data.courtesyPage = Number(result?.page) || page;
+    state.data.courtesyTotalPages = Number(result?.totalPages) || 0;
+
+    const tab = state.data.courtesyTab === 'form' ? 'form' : 'list';
+    const editing = state.data.courtesyEditing || null;
     main.innerHTML = `
-      <div class="card">
-        <h3>新增人情簿记录</h3>
-        <form data-form="create-courtesy">
-          <div class="split">${field('标题', 'title')}${field('对象姓名', 'personName')}</div>
-          ${field('时间', 'eventTime', '', 'datetime-local')}
-          ${textareaField('内容', 'content')}
-          <div class="split">${field('兴趣', 'interests')}${field('爱好', 'hobbies')}</div>
-          <div class="split">${field('习惯', 'habits')}${field('备注', 'remarks')}</div>
-          <button class="primary" type="submit">保存</button>
-        </form>
+      <div class="tabs">
+        <button class="tab ${tab === 'list' ? 'active' : ''}" data-action="courtesy-tab" data-tab="list">列表（${state.data.courtesyTotal}）</button>
+        <button class="tab ${tab === 'form' ? 'active' : ''}" data-action="courtesy-tab" data-tab="form">${editing ? '编辑' : '新增'}</button>
       </div>
+      ${tab === 'list' ? courtesyListHTML(notes) : courtesyFormCardHTML(editing)}`;
+  }
+
+  function courtesyListHTML(notes) {
+    return `
       <div class="card">
-        <h3>记录列表</h3>
+        <div class="row">
+          <h3 class="spacer">记录列表（共 ${state.data.courtesyTotal || notes.length} 条）</h3>
+          <button class="primary btn-sm" data-action="courtesy-new">新增记录</button>
+        </div>
         <table>
-          <tr><th>标题</th><th>对象</th><th>时间</th><th>记录人</th><th>操作</th></tr>
+          <tr><th>标题 / 姓名</th><th>关系等级</th><th>优先级</th><th>归档状态</th><th>下次跟进</th><th>操作</th></tr>
           ${notes.map(n => `
             <tr>
-              <td>${esc(n.title)}<div class="small muted">${esc(n.content).slice(0, 50)}</div></td>
-              <td>${esc(n.personName)}</td>
-              <td>${fmtDate(n.eventTime)}</td>
-              <td>${esc(n.creatorName)}</td>
-              <td><button class="btn-sm danger" data-action="delete-courtesy" data-id="${n.id}">删除</button></td>
-            </tr>`).join('') || '<tr><td colspan="5" class="empty">人情簿还是空的</td></tr>'}
+              <td>${esc(n.title)}<div class="small muted">${esc(n.personName)} · ${esc(n.company || '')}</div></td>
+              <td>${esc(n.relationLevel || '-')}</td>
+              <td>${n.priority ? esc(n.priority) : '-'}</td>
+              <td>${n.archiveStatus === '已归档' ? pill('已归档', 'warn') : pill('正常', 'ok')}</td>
+              <td>${n.nextFollowUpAt ? fmtDateOnly(n.nextFollowUpAt) : '-'}</td>
+              <td class="row">
+                <button class="btn-sm" data-action="edit-courtesy" data-id="${n.id}">编辑</button>
+                <button class="btn-sm danger" data-action="delete-courtesy" data-id="${n.id}">删除</button>
+              </td>
+            </tr>`).join('') || '<tr><td colspan="6" class="empty">人情簿还是空的</td></tr>'}
         </table>
+        ${courtesyPagerHTML()}
+      </div>`;
+  }
+
+  function courtesyPagerHTML() {
+    const totalPages = state.data.courtesyTotalPages || 0;
+    if (totalPages <= 1) return '';
+    const page = state.data.courtesyPage || 1;
+    return `<div class="row" style="margin-top:10px">
+      <span class="spacer"></span>
+      <button class="btn-sm" data-action="courtesy-page" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>上一页</button>
+      <span class="small muted">${page}/${totalPages}</span>
+      <button class="btn-sm" data-action="courtesy-page" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
+    </div>`;
+  }
+
+  function courtesyFormCardHTML(editing) {
+    return `
+      <div class="card">
+        <div class="row">
+          <h3 class="spacer">${editing ? '编辑人情簿记录' : '新增人情簿记录'}</h3>
+          <span class="small muted">${editing ? esc(editing.title) : '标题、姓名与记录时间为必填'}</span>
+        </div>
+        ${courtesyFormHTML(editing)}
       </div>`;
   }
 
@@ -1324,7 +1626,7 @@
     }
     const configured = config?.configured !== false;
     main.innerHTML = `
-      <div class="split" style="grid-template-columns: 240px 1fr">
+      <div class="ai-layout">
         <div class="card">
           <div class="row"><h3 class="spacer">历史对话</h3><button class="btn-sm" data-action="new-ai">新对话</button></div>
           <div class="scroll-list">
@@ -1351,32 +1653,259 @@
       </div>`;
   }
 
+
+  async function loadPlatformContent(main) {
+    const pc = state.platformContent;
+    if (!pc.platforms.length) {
+      pc.platforms = await api('/api/org/geo/platforms');
+    }
+    if (!pc.platforms.some(platform => platform.code === pc.platform) && pc.platforms[0]) {
+      pc.platform = pc.platforms[0].code;
+    }
+    pc.contents = await api(`/api/org/geo/platform-contents?platform=${encodeURIComponent(pc.platform)}`);
+    main.innerHTML = platformContentHTML();
+  }
+
+  function platformContentHTML() {
+    const pc = state.platformContent;
+    const platforms = pc.platforms || [];
+    const contents = pc.contents || [];
+    const draft = pc.draft;
+    return `
+      <div class="card">
+        <div class="row"><h3 class="spacer">GEO平台内容</h3><span class="small muted">为网媒、自媒体、公众号、微博、小红书、短视频维护本地内容</span></div>
+        <div class="row">
+          ${platforms.map(platform => `<button class="btn-sm ${platform.code === pc.platform ? 'primary' : ''}" data-action="pc-platform" data-code="${esc(platform.code)}">${esc(platform.name)}</button>`).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <h3>AI 生成</h3>
+        <form data-form="pc-generate">
+          <div class="split">
+            ${field('选题 / 主题', 'topic', '', 'text', 'placeholder="例如：温州企业如何选择合适的商会服务"')}
+            ${field('标题（可选）', 'title', '', 'text', 'placeholder="留空由 AI 生成"')}
+          </div>
+          ${field('额外要求（可选）', 'extraInstructions')}
+          <button class="primary" type="submit">生成内容</button>
+        </form>
+        <div class="small muted">生成会扣除 GEO 基础服务费与模型费用；确认内容后可在下方内容库选择媒体发稿，发稿会按媒体价格扣除组织原石。</div>
+      </div>
+      ${draft ? `
+      <div class="card">
+        <div class="row"><h3 class="spacer">${draft.id ? '编辑内容' : '新建内容'}</h3><span class="small muted">${(draft.body || '').length} 字</span></div>
+        <form data-form="pc-save">
+          <input type="hidden" name="id" value="${draft.id || ''}">
+          ${field('标题', 'title', draft.title)}
+          <div class="row" style="margin:6px 0">
+            <button type="button" class="btn-sm" data-action="pc-insert-media" data-kind="image">插入图片</button>
+            <button type="button" class="btn-sm" data-action="pc-insert-media" data-kind="video">插入视频</button>
+            <button type="button" class="btn-sm" data-action="pc-insert-link">插入外链</button>
+            <span class="small muted">图片用 Markdown 图片语法，视频用 &lt;video&gt; 标签，发稿时自动转 HTML</span>
+          </div>
+          <input type="file" id="pc-media-file" style="display:none" accept="image/*,video/*">
+          ${textareaField('正文', 'body', draft.body, 'rows="14" id="pc-draft-body" placeholder="支持 Markdown；可用上方按钮插入图片/视频链接"')}
+          <button class="primary" type="submit">保存内容</button>
+          <button type="button" data-action="pc-cancel">取消</button>
+        </form>
+      </div>` : ''}
+      <div class="card">
+        <h3>内容库（${contents.length} 条）</h3>
+        <table>
+          <tr><th>标题</th><th>平台</th><th>更新时间</th><th>字数</th><th>操作</th></tr>
+          ${contents.map(content => {
+            const platformName = platforms.find(item => item.code === content.platform)?.name
+              || content.platformName;
+            return `
+            <tr>
+              <td>${esc(content.title)}
+                ${content.publishStatus === 'Published'
+                  ? `<div class="small muted">已发布 · ${esc(content.mediaTitle || '')} · 订单 ${esc(content.orderNumber || '')}</div>`
+                  : content.publishStatus === 'Failed'
+                    ? `<div class="small muted" style="color:var(--warning)">发稿失败：${esc(content.publishError || '')}</div>`
+                    : '<div class="small muted">未发布</div>'}
+              </td>
+              <td>${esc(platformName)}</td>
+              <td class="small">${fmtDate(content.updatedAt)}</td>
+              <td class="small">${(content.body || '').length}</td>
+              <td class="row">
+                ${content.publishStatus !== 'Published'
+                  ? `<button class="btn-sm primary" data-action="pc-publish" data-id="${content.id}">发稿</button>`
+                  : ''}
+                <button class="btn-sm" data-action="pc-edit" data-id="${content.id}">编辑</button>
+                <button class="btn-sm danger" data-action="pc-delete" data-id="${content.id}">删除</button>
+              </td>
+            </tr>`;
+          }).join('') || '<tr><td colspan="5" class="empty">暂无内容</td></tr>'}
+        </table>
+      </div>`;
+  }
+
+  async function openPublishMedia(page = 1) {
+    const target = state.data.pcPublishTarget;
+    if (!target) return;
+
+    const params = new URLSearchParams({
+      platform: target.platform,
+      page: String(Math.max(1, page)),
+      pageSize: '5'
+    });
+    if (state.data.pcPublishKeyword) params.set('keyword', state.data.pcPublishKeyword);
+    if (state.data.pcPublishMinStone) params.set('minStonePrice', state.data.pcPublishMinStone);
+    if (state.data.pcPublishMaxStone) params.set('maxStonePrice', state.data.pcPublishMaxStone);
+    if (state.data.pcPublishSort) params.set('sort', state.data.pcPublishSort);
+
+    const result = await api(`/api/org/geo/platform-contents/media?${params}`);
+    state.data.pcPublishResult = result;
+    state.data.pcPublishPage = result.page || page;
+    renderPublishModal();
+  }
+
+  function renderPublishModal() {
+    const target = state.data.pcPublishTarget;
+    const result = state.data.pcPublishResult;
+    if (!target || !result) return;
+
+    const tab = state.data.pcPublishTab === 'favorites' ? 'favorites' : 'list';
+    const selected = state.data.pcPublishSelected || {};
+    const selectedList = Object.values(selected);
+    const totalStones = selectedList.reduce((sum, item) => sum + (item.stonePrice || 0), 0);
+    const favoriteIds = new Set((result.favorites || []).map(item => item.id));
+
+    const row = (media, isFavorite) => {
+      const checked = selected[media.id] ? 'checked' : '';
+      const disabled = media.stonePrice == null ? 'disabled' : '';
+      return `
+        <tr>
+          <td class="col-check"><input type="checkbox" data-action="pc-publish-toggle" data-id="${media.id}" data-title="${esc(media.title)}" data-stone-price="${media.stonePrice ?? 0}" ${checked} ${disabled}></td>
+          <td>${esc(media.title)}</td>
+          <td style="white-space:nowrap">${media.stonePrice != null ? `${media.stonePrice} 原石` : '价格待确认'}</td>
+          <td style="width:56px;text-align:center"><button type="button" class="btn-sm" title="${isFavorite ? '取消收藏' : '收藏'}" data-action="pc-publish-favorite" data-id="${media.id}" data-title="${esc(media.title)}" data-favorite="${isFavorite ? '1' : '0'}">${isFavorite ? '♥' : '♡'}</button></td>
+        </tr>`;
+    };
+
+    const pageItems = result.items || [];
+    const page = result.page || 1;
+    const totalPages = result.totalPages || 1;
+
+    const listHtml = `
+      <div class="small muted" style="margin:10px 0 6px">媒体列表（共 ${result.total} 个）</div>
+      <table>
+        <tr><th class="col-check"></th><th>媒体</th><th>价格</th><th style="width:56px"></th></tr>
+        ${pageItems.map(item => row(item, favoriteIds.has(item.id))).join('') || '<tr><td colspan="4" class="empty">没有匹配的媒体</td></tr>'}
+      </table>
+      <div class="row" style="margin-top:8px">
+        <span class="spacer"></span>
+        <button type="button" class="btn-sm" data-action="pc-publish-page" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>上一页</button>
+        <span class="small muted">${page}/${totalPages}</span>
+        <button type="button" class="btn-sm" data-action="pc-publish-page" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
+      </div>`;
+
+    const favorites = result.favorites || [];
+    const favoriteHtml = `
+      <table>
+        <tr><th class="col-check"></th><th>媒体</th><th>价格</th><th style="width:56px"></th></tr>
+        ${favorites.map(item => row(item, true)).join('') || '<tr><td colspan="4" class="empty">还没有收藏媒体</td></tr>'}
+      </table>`;
+
+    const filterVisible = state.data.pcPublishFilterVisible === true;
+
+    showModal('选择发稿媒体', `
+      <div class="row">
+        <span class="small muted">内容：${esc(target.title)} · 平台：${esc(target.platformName)}</span>
+        <span class="spacer"></span>
+        <button type="button" class="btn-sm" title="筛选" data-action="pc-publish-filter-toggle">⌕</button>
+      </div>
+      ${filterVisible ? `
+      <div class="row" style="margin:8px 0">
+        <input name="pcKeyword" placeholder="搜索媒体名称（当前批）" value="${esc(state.data.pcPublishKeyword || '')}" style="flex:1">
+        <input name="pcMinStone" placeholder="最低原石" value="${esc(state.data.pcPublishMinStone || '')}" style="width:100px">
+        <input name="pcMaxStone" placeholder="最高原石" value="${esc(state.data.pcPublishMaxStone || '')}" style="width:100px">
+        <select name="pcSort" style="width:130px">
+          <option value="">默认排序</option>
+          <option value="priceAsc" ${state.data.pcPublishSort === 'priceAsc' ? 'selected' : ''}>原石从低到高</option>
+          <option value="priceDesc" ${state.data.pcPublishSort === 'priceDesc' ? 'selected' : ''}>原石从高到低</option>
+        </select>
+        <button type="button" class="btn-sm primary" data-action="pc-publish-search">查询</button>
+      </div>` : ''}
+      <div class="tabs" style="margin:10px 0">
+        <button type="button" class="tab ${tab === 'list' ? 'active' : ''}" data-action="pc-publish-tab" data-tab="list">媒体列表</button>
+        <button type="button" class="tab ${tab === 'favorites' ? 'active' : ''}" data-action="pc-publish-tab" data-tab="favorites">我的收藏（${favorites.length}）</button>
+      </div>
+      ${tab === 'list' ? listHtml : favoriteHtml}
+      <div class="row" style="margin-top:12px">
+        <span class="small muted">已选 ${selectedList.length} 个，合计 ${totalStones} 原石</span>
+        <span class="spacer"></span>
+        <button type="button" data-action="close-modal">关闭</button>
+        <button type="button" class="primary" data-action="pc-publish-submit" ${selectedList.length ? '' : 'disabled'}>确认发稿</button>
+      </div>
+      <div class="small muted">发稿会提交到 GEO 权威服务并按原石扣费，提交后不可撤回。</div>`, { dismissible: false });
+  }
+
+  function insertDraftMedia(snippet) {
+    const textarea = document.getElementById('pc-draft-body');
+    if (!textarea) return;
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? start;
+    textarea.value = textarea.value.slice(0, start) + snippet + textarea.value.slice(end);
+    textarea.focus();
+    textarea.selectionStart = textarea.selectionEnd = start + snippet.length;
+  }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        const index = result.indexOf(',');
+        resolve(index >= 0 ? result.slice(index + 1) : result);
+      };
+      reader.onerror = () => reject(new Error('读取文件失败'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function renderPlatformContentView() {
+    const view = $('#view');
+    if (view && state.view === 'platformContent') {
+      view.innerHTML = platformContentHTML();
+    }
+  }
+
   async function loadGeo(main) {
+    const usagePage = state.geo.usagePage || 1;
     const [profile, contents, usage] = await Promise.all([
       api('/api/org/geo/profile'),
       api('/api/org/geo/contents'),
-      api('/api/org/geo/usage')
+      api(`/api/org/geo/usage?page=${usagePage}&pageSize=20`)
     ]);
     state.geo.profile = profile;
     state.geo.contents = contents;
-    state.geo.usage = usage;
+    state.geo.usage = usage.items || [];
+    state.geo.usagePage = usage.page || 1;
+    state.geo.usageTotal = usage.total || 0;
+    state.geo.usageTotalPages = usage.totalPages || 1;
     main.innerHTML = geoHTML();
   }
 
   function geoHTML() {
-    const tab = state.geoTab;
+    const tab = ['profile', 'generate', 'usage', 'check'].includes(state.geoTab)
+      ? state.geoTab
+      : 'profile';
     return `
       <div class="tabs">
-        <button class="tab ${tab === 'content' ? 'active' : ''}" data-action="geo-tab" data-tab="content">内容优化</button>
+        <button class="tab ${tab === 'profile' ? 'active' : ''}" data-action="geo-tab" data-tab="profile">组织资料</button>
+        <button class="tab ${tab === 'generate' ? 'active' : ''}" data-action="geo-tab" data-tab="generate">生成内容</button>
+        <button class="tab ${tab === 'usage' ? 'active' : ''}" data-action="geo-tab" data-tab="usage">GEO 用量</button>
         <button class="tab ${tab === 'check' ? 'active' : ''}" data-action="geo-tab" data-tab="check">优化检测</button>
       </div>
-      ${tab === 'content' ? geoContentHTML() : geoCheckHTML()}`;
+      ${tab === 'profile' ? geoProfileHTML()
+        : tab === 'generate' ? geoGenerateHTML()
+        : tab === 'usage' ? geoUsageHTML()
+        : geoCheckHTML()}`;
   }
 
-  function geoContentHTML() {
+  function geoProfileHTML() {
     const p = state.geo.profile || {};
-    const contents = state.geo.contents || [];
-    const usage = state.geo.usage || [];
     return `
       <div class="card">
         <div class="row"><h3 class="spacer">GEO 组织资料</h3><span class="small muted">保存后会同步公开站</span></div>
@@ -1426,7 +1955,12 @@
             <button class="primary" type="submit">保存 GEO 资料</button>
           </div>
         </form>
-      </div>
+      </div>`;
+  }
+
+  function geoGenerateHTML() {
+    const contents = state.geo.contents || [];
+    return `
       <div class="card">
         <div class="row"><h3 class="spacer">生成 GEO 内容</h3><span class="small muted">生成后自动诊断/重写并发布</span></div>
         <form data-form="geo-generate">
@@ -1458,12 +1992,17 @@
               </td>
             </tr>`).join('') || '<tr><td colspan="5" class="empty">还没有生成内容</td></tr>'}
         </table>
-      </div>
+      </div>`;
+  }
+
+  function geoUsageHTML() {
+    const usage = state.geo.usage || [];
+    return `
       <div class="card">
-        <h3>GEO 用量</h3>
+        <div class="row"><h3 class="spacer">GEO 用量</h3><span class="small muted">共 ${state.geo.usageTotal} 条</span></div>
         <table>
           <tr><th>时间</th><th>动作</th><th>模型</th><th>Token</th><th>扣费</th></tr>
-          ${usage.slice(0, 30).map(u => `
+          ${usage.map(u => `
             <tr>
               <td>${fmtDate(u.createdAt)}</td>
               <td>${esc(u.action)}</td>
@@ -1472,7 +2011,20 @@
               <td>${u.totalCostStones} 原石</td>
             </tr>`).join('') || '<tr><td colspan="5" class="empty">暂无用量</td></tr>'}
         </table>
+        ${usagePagerHTML()}
       </div>`;
+  }
+
+  function usagePagerHTML() {
+    const totalPages = state.geo.usageTotalPages || 1;
+    if (totalPages <= 1) return '';
+    const page = state.geo.usagePage || 1;
+    return `<div class="row" style="margin-top:10px">
+      <span class="spacer"></span>
+      <button class="btn-sm" data-action="geo-usage-page" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>上一页</button>
+      <span class="small muted">${page}/${totalPages}</span>
+      <button class="btn-sm" data-action="geo-usage-page" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>下一页</button>
+    </div>`;
   }
 
   function geoCheckHTML() {
@@ -1776,7 +2328,7 @@
         <div class="split">${field('省', 'province')}${field('市', 'city')}</div>
         ${field('区/县', 'district')}
         <div class="modal-actions"><button class="primary" type="submit">提交申请</button></div>
-      </form>`);
+      </form>`, { dismissible: false });
   }
 
   async function lookupCreditCode(input) {
@@ -1929,6 +2481,7 @@
     'show-register': () => showRegister(),
     'close-modal': () => closeModal(),
     'logout': async () => {
+      if (!confirm('确定要退出登录吗？退出后需要重新验证手机号。')) return;
       await clearToken();
       state.user = null;
       state.ai = { conversations: [], messages: [], conversationId: null, streaming: false };
@@ -1989,9 +2542,13 @@
     'send-sms': async (el) => {
       try {
         const form = el.closest('form');
-        const phone = form?.querySelector('input[name="phone"]')?.value || '';
+        const phone = form?.querySelector('input[name="phone"]')?.value || state.user?.phone || '';
         await sendSms(el.dataset.scene || 'login', phone);
       } catch (error) { toast(error.message, true); }
+    },
+    'personal-tab': (el) => {
+      state.data.personalTab = el.dataset.tab;
+      loadView();
     },
     'list-tab': (el) => {
       const key = el.dataset.view === 'activities' ? 'actTab'
@@ -2085,9 +2642,46 @@
         loadView();
       } catch (error) { toast(error.message, true); }
     },
+    'courtesy-page': (el) => {
+      state.data.courtesyPage = Math.max(1, Number(el.dataset.page) || 1);
+      loadView();
+    },
+    'courtesy-tab': (el) => {
+      state.data.courtesyTab = el.dataset.tab;
+      if (el.dataset.tab === 'list') {
+        state.data.courtesyEditing = null;
+      }
+      loadView();
+    },
+    'courtesy-new': () => {
+      state.data.courtesyEditing = null;
+      state.data.courtesyTab = 'form';
+      loadView();
+    },
+    'edit-courtesy': (el) => {
+      const note = (state.data.courtesyNotes || []).find(item => String(item.id) === el.dataset.id);
+      if (!note) return;
+      state.data.courtesyEditing = note;
+      state.data.courtesyTab = 'form';
+      loadView();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    'cancel-courtesy-edit': () => {
+      state.data.courtesyEditing = null;
+      state.data.courtesyTab = 'list';
+      loadView();
+    },
     'delete-courtesy': async (el) => {
-      try { await api(`/api/org/courtesy-notes/${el.dataset.id}`, { method: 'DELETE' }); loadView(); }
-      catch (error) { toast(error.message, true); }
+      if (!confirm('删除后无法恢复，确定删除这条人情簿记录？')) return;
+      try {
+        await api(`/api/org/courtesy-notes/${el.dataset.id}`, { method: 'DELETE' });
+        if (String(state.data.courtesyEditing?.id) === el.dataset.id) {
+          state.data.courtesyEditing = null;
+          state.data.courtesyTab = 'list';
+        }
+        toast('已删除');
+        loadView();
+      } catch (error) { toast(error.message, true); }
     },
     'view-enterprise': async (el) => {
       try {
@@ -2126,6 +2720,161 @@
       } catch (error) { toast(error.message, true); }
     },
     'geo-tab': (el) => { state.geoTab = el.dataset.tab; loadView(); },
+    'geo-usage-page': (el) => {
+      state.geo.usagePage = Math.max(1, Number(el.dataset.page) || 1);
+      loadView();
+    },
+    'pc-platform': (el) => {
+      state.platformContent.platform = el.dataset.code;
+      state.platformContent.draft = null;
+      loadView();
+    },
+    'pc-edit': (el) => {
+      const content = (state.platformContent.contents || []).find(item => String(item.id) === el.dataset.id);
+      if (!content) return;
+      state.platformContent.draft = {
+        id: content.id,
+        title: content.title,
+        body: content.body
+      };
+      renderPlatformContentView();
+    },
+    'pc-insert-media': (el) => {
+      const kind = el.dataset.kind === 'video' ? 'video' : 'image';
+      state.data.pcMediaKind = kind;
+      const input = document.getElementById('pc-media-file');
+      if (!input) return;
+      input.accept = kind === 'video' ? 'video/*' : 'image/*';
+      input.value = '';
+      input.click();
+    },
+    'pc-insert-link': () => {
+      const url = (prompt('粘贴图片或视频链接（http/https）') || '').trim();
+      if (!/^https?:\/\//i.test(url)) {
+        if (url) toast('请输入 http(s) 链接', true);
+        return;
+      }
+      const isVideo = /\.(mp4|webm|mov)(\?|$)/i.test(url);
+      insertDraftMedia(isVideo ? `<video src="${url}" controls></video>` : `![图片](${url})`);
+    },
+    'pc-cancel': () => {
+      state.platformContent.draft = null;
+      renderPlatformContentView();
+    },
+    'pc-publish': async (el) => {
+      const content = (state.platformContent.contents || []).find(item => String(item.id) === el.dataset.id);
+      if (!content) return;
+      state.data.pcPublishTarget = content;
+      state.data.pcPublishTab = 'list';
+      state.data.pcPublishPage = 1;
+      state.data.pcPublishFilterVisible = false;
+      state.data.pcPublishKeyword = '';
+      state.data.pcPublishMinStone = '';
+      state.data.pcPublishMaxStone = '';
+      state.data.pcPublishSort = '';
+      state.data.pcPublishSelected = {};
+      showModal('选择发稿媒体', '<div class="empty">正在加载媒体…</div>', { dismissible: false });
+      try {
+        await openPublishMedia(1);
+      } catch (error) {
+        closeModal();
+        toast(error.message, true);
+      }
+    },
+    'pc-publish-filter-toggle': () => {
+      state.data.pcPublishFilterVisible = !state.data.pcPublishFilterVisible;
+      renderPublishModal();
+    },
+    'pc-publish-search': async () => {
+      const modal = document.querySelector('.modal');
+      if (!modal) return;
+      state.data.pcPublishKeyword = (modal.querySelector('input[name="pcKeyword"]')?.value || '').trim();
+      state.data.pcPublishMinStone = (modal.querySelector('input[name="pcMinStone"]')?.value || '').trim();
+      state.data.pcPublishMaxStone = (modal.querySelector('input[name="pcMaxStone"]')?.value || '').trim();
+      state.data.pcPublishSort = modal.querySelector('select[name="pcSort"]')?.value || '';
+      state.data.pcPublishPage = 1;
+      try {
+        await openPublishMedia(1);
+      } catch (error) { toast(error.message, true); }
+    },
+    'pc-publish-tab': (el) => {
+      state.data.pcPublishTab = el.dataset.tab;
+      renderPublishModal();
+    },
+    'pc-publish-page': async (el) => {
+      const page = Math.max(1, Number(el.dataset.page) || 1);
+      state.data.pcPublishPage = page;
+      try {
+        await openPublishMedia(page);
+      } catch (error) { toast(error.message, true); }
+    },
+    'pc-publish-toggle': (el) => {
+      const id = Number(el.dataset.id);
+      if (!id) return;
+      const selected = state.data.pcPublishSelected || {};
+      if (el.checked) {
+        selected[id] = {
+          id,
+          title: el.dataset.title || '',
+          stonePrice: Number(el.dataset.stonePrice) || 0
+        };
+      } else {
+        delete selected[id];
+      }
+      state.data.pcPublishSelected = selected;
+      renderPublishModal();
+    },
+    'pc-publish-favorite': async (el) => {
+      const target = state.data.pcPublishTarget;
+      if (!target) return;
+      const mediaId = Number(el.dataset.id);
+      const isFavorite = el.dataset.favorite === '1';
+      try {
+        if (isFavorite) {
+          await api(`/api/org/geo/media-favorites/${mediaId}?platform=${encodeURIComponent(target.platform)}`, { method: 'DELETE' });
+        } else {
+          await api('/api/org/geo/media-favorites', {
+            method: 'POST',
+            body: {
+              platform: target.platform,
+              mediaId,
+              mediaTitle: el.dataset.title || ''
+            }
+          });
+        }
+        await openPublishMedia(state.data.pcPublishPage || 1);
+      } catch (error) { toast(error.message, true); }
+    },
+    'pc-publish-submit': async () => {
+      const target = state.data.pcPublishTarget;
+      const selected = Object.values(state.data.pcPublishSelected || {});
+      if (!target || !selected.length) return;
+
+      const total = selected.reduce((sum, item) => sum + (item.stonePrice || 0), 0);
+      if (!confirm(`确认向 ${selected.length} 个媒体发稿？\n预计扣除 ${total} 原石。\n提交后不可撤回。`)) return;
+
+      try {
+        const result = await api(`/api/org/geo/platform-contents/${target.id}/publish`, {
+          method: 'POST',
+          body: { mediaIds: selected.map(item => item.id) },
+          timeout: 300000
+        });
+        closeModal();
+        state.data.pcPublishTarget = null;
+        state.data.pcPublishSelected = {};
+        toast(`发稿完成：成功 ${result.successCount} 个，失败 ${result.failedCount} 个，扣 ${result.totalCostStones} 原石，余额 ${result.balanceAfter}`);
+        loadView();
+      } catch (error) { toast(error.message, true); }
+    },
+    'pc-delete': async (el) => {
+      if (!confirm('删除后无法恢复，仅影响本地内容库。确定删除？')) return;
+      try {
+        await api(`/api/org/geo/platform-contents/${el.dataset.id}`, { method: 'DELETE' });
+        state.platformContent.draft = null;
+        toast('已删除');
+        loadView();
+      } catch (error) { toast(error.message, true); }
+    },
     'generate-website': async (el) => {
       const form = el.closest('form');
       if (!form) return;
@@ -2386,21 +3135,30 @@
       } catch (error) { toast(error.message, true); }
     },
     'save-personal': async (data) => {
+      const body = { ...data };
+      delete body.phone;
+      if (body.solarBirthday) {
+        body.solarBirthday = new Date(`${body.solarBirthday}T00:00:00`).toISOString();
+      } else {
+        delete body.solarBirthday;
+      }
+
       try {
-        state.user = await api('/api/auth/profile', {
-          method: 'PUT', body: { nickname: data.nickname, realName: data.realName }
-        });
+        state.user = await api('/api/auth/profile', { method: 'PUT', body });
         toast('个人资料已保存');
-        render();
+        loadView();
       } catch (error) { toast(error.message, true); }
     },
     'change-password': async (data) => {
       if (data.newPassword !== data.confirmPassword) { toast('两次输入的新密码不一致', true); return; }
+      const code = (data.code || '').trim();
+      if (!code) { toast('请先填写短信验证码', true); return; }
       try {
         await api('/api/auth/password', {
-          method: 'PUT', body: { currentPassword: data.currentPassword, newPassword: data.newPassword }
+          method: 'PUT', body: { code, newPassword: data.newPassword }
         });
         toast('密码已修改');
+        loadView();
       } catch (error) { toast(error.message, true); }
     },
     'save-org': async (data) => {
@@ -2493,17 +3251,27 @@
       } catch (error) { toast(error.message, true); }
     },
     'create-courtesy': async (data) => {
-      try {
-        const body = {
-          title: data.title, content: data.content,
-          eventTime: new Date(data.eventTime).toISOString(),
-          personName: data.personName
-        };
-        for (const key of ['interests', 'hobbies', 'habits', 'remarks']) {
-          if (data[key]) body[key] = data[key];
+      const editing = state.data.courtesyEditing;
+      const body = { ...data };
+      for (const name of COURTESY_DATE_FIELDS) {
+        if (body[name]) {
+          body[name] = new Date(`${body[name]}T00:00:00`).toISOString();
+        } else {
+          delete body[name];
         }
-        await api('/api/org/courtesy-notes', { method: 'POST', body });
-        toast('记录已保存'); loadView();
+      }
+
+      try {
+        if (editing) {
+          await api(`/api/org/courtesy-notes/${editing.id}`, { method: 'PUT', body });
+        } else {
+          await api('/api/org/courtesy-notes', { method: 'POST', body });
+        }
+        state.data.courtesyEditing = null;
+        state.data.courtesyTab = 'list';
+        state.data.courtesyPage = 1;
+        toast('记录已保存');
+        loadView();
       } catch (error) { toast(error.message, true); }
     },
     'search-enterprises': (data) => {
@@ -2537,6 +3305,49 @@
     'geo-generate': async (data) => {
       await generateGeoOne(null);
     },
+    'pc-generate': async (data) => {
+      const pc = state.platformContent;
+      const topic = (data.topic || '').trim();
+      if (topic.length < 2) { toast('请填写选题（至少 2 个字）', true); return; }
+      try {
+        const result = await api('/api/org/geo/platform-contents/generate', {
+          method: 'POST',
+          body: {
+            platform: pc.platform,
+            title: data.title || '',
+            topic,
+            extraInstructions: data.extraInstructions || ''
+          },
+          timeout: 180000
+        });
+        pc.draft = { id: null, title: result.title, body: result.body };
+        toast(`已生成，扣 ${result.totalCostStones} 原石，余额 ${result.balanceAfter}`);
+        renderPlatformContentView();
+      } catch (error) { toast(error.message, true); }
+    },
+    'pc-save': async (data) => {
+      const pc = state.platformContent;
+      const title = (data.title || '').trim();
+      const body = data.body || '';
+      if (title.length < 2) { toast('标题至少需要 2 个字', true); return; }
+      if (!body.trim()) { toast('正文不能为空', true); return; }
+      try {
+        if (data.id) {
+          await api(`/api/org/geo/platform-contents/${data.id}`, {
+            method: 'PUT',
+            body: { platform: pc.platform, title, body }
+          });
+        } else {
+          await api('/api/org/geo/platform-contents', {
+            method: 'POST',
+            body: { platform: pc.platform, title, body }
+          });
+        }
+        pc.draft = null;
+        toast('内容已保存');
+        loadView();
+      } catch (error) { toast(error.message, true); }
+    },
     'submit-feedback': async (data) => {
       try {
         const result = await api('/api/org/feedback', { method: 'POST', body: data });
@@ -2544,6 +3355,35 @@
       } catch (error) { toast(error.message, true); }
     }
   };
+
+  document.addEventListener('change', async (event) => {
+    const input = event.target;
+    if (input.id !== 'pc-media-file' || !input.files?.length) return;
+
+    const file = input.files[0];
+    const kind = state.data.pcMediaKind === 'video' ? 'video' : 'image';
+    input.value = '';
+    try {
+      toast(kind === 'video' ? '正在上传视频…' : '正在上传图片…');
+      const base64 = await fileToBase64(file);
+      const result = await api('/api/org/geo/platform-contents/upload', {
+        method: 'POST',
+        body: {
+          fileName: file.name,
+          contentType: file.type,
+          kind,
+          base64
+        },
+        timeout: 300000
+      });
+      insertDraftMedia(kind === 'video'
+        ? `<video src="${result.url}" controls></video>`
+        : `![图片](${result.url})`);
+      toast('已插入正文');
+    } catch (error) {
+      toast(error.message, true);
+    }
+  });
 
   document.addEventListener('input', (event) => {
     const input = event.target.closest('[data-credit-code]');
@@ -2553,6 +3393,12 @@
   });
 
   document.addEventListener('click', (event) => {
+    const dateInput = event.target.closest('input[type="date"], input[type="datetime-local"]');
+    if (dateInput && typeof dateInput.showPicker === 'function') {
+      try { dateInput.showPicker(); } catch { /* 选择器已打开或当前不可用 */ }
+      return;
+    }
+
     if (!event.target.closest('.sidebar-footer')) {
       const userMenu = document.getElementById('user-menu');
       if (userMenu) userMenu.hidden = true;
@@ -2562,7 +3408,8 @@
       navTo(nav.dataset.nav);
       return;
     }
-    if (event.target.classList.contains('modal-backdrop')) {
+    if (event.target.classList.contains('modal-backdrop')
+        && !event.target.hasAttribute('data-modal-locked')) {
       closeModal();
       return;
     }
