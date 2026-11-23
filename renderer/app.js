@@ -439,6 +439,7 @@
   async function loadView() {
     const main = $('#view');
     if (!main) return;
+    main.classList.remove('help-view');
     try {
       switch (state.view) {
         case 'home': await loadHome(main); break;
@@ -968,18 +969,13 @@
   }
 
   async function loadHelp(main) {
+    main.classList.add('help-view');
     main.innerHTML = `
-      <div class="card help-card">
-        <div class="row" style="margin-bottom:8px">
-          <h3 class="spacer">帮助中心</h3>
-          <span class="small muted">在线内容来自 help.deepbit001.com</span>
-        </div>
-        <iframe
-          class="help-frame"
-          src="https://help.deepbit001.com"
-          title="帮助中心"
-          referrerpolicy="no-referrer"></iframe>
-      </div>`;
+      <iframe
+        class="help-frame"
+        src="https://help.deepbit001.com"
+        title="帮助中心"
+        referrerpolicy="no-referrer"></iframe>`;
   }
 
   async function loadAppearance(main) {
