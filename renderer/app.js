@@ -255,7 +255,8 @@
     memberIdentity: '会员身份管理',
     joinReview: '入会审核',
     feedback: '投诉与建议',
-    update: '版本检查'
+    update: '版本检查',
+    appearance: '外观设置'
   };
 
   const NAV_ICONS = {
@@ -269,6 +270,7 @@
     dashboard: '组织成员、内容与运营数据一屏总览',
     annual: '按年度汇总组织成员、内容与运营数据',
     personal: '个人资料与登录密码',
+    appearance: '跟随系统或选择明亮/黑暗主题',
     org: '组织资料、证照与电子签章留痕；仅会长和秘书长可修改',
     memberTypes: '新增或删除本组织的会员身份类型',
     memberIdentity: '调整成员身份与 Pro 名额',
@@ -335,9 +337,7 @@
                 <button data-nav="joinReview"><span>✓</span>入会审核</button>
               ` : ''}
               <div class="user-menu-label">外观</div>
-              <button data-action="theme-select" data-mode="system"><span>◐</span>跟随系统</button>
-              <button data-action="theme-select" data-mode="light"><span>☀</span>明亮</button>
-              <button data-action="theme-select" data-mode="dark"><span>☾</span>黑暗</button>
+              <button data-nav="appearance"><span>◐</span>外观设置</button>
               <div class="user-menu-label">其他</div>
               <button data-nav="feedback"><span>!</span>投诉与建议</button>
               <button data-action="open-update"><span>↻</span>版本检查</button>
@@ -442,6 +442,7 @@
         case 'dashboard': await loadDashboard(main); break;
         case 'annual': await loadAnnualSummary(main); break;
         case 'personal': await loadPersonal(main); break;
+        case 'appearance': await loadAppearance(main); break;
         case 'org': await loadOrg(main); break;
         case 'memberTypes': await loadMemberTypes(main); break;
         case 'memberIdentity': await loadMemberIdentity(main); break;
@@ -960,6 +961,28 @@
         <button class="tab ${tab === 'password' ? 'active' : ''}" data-action="personal-tab" data-tab="password">改密码</button>
       </div>
       ${tab === 'profile' ? personalProfileHTML(user) : personalPasswordHTML(user)}`;
+  }
+
+  async function loadAppearance(main) {
+    const mode = storedTheme();
+    const option = (value, label, detail) => `
+      <button type="button" class="btn-sm ${mode === value ? 'primary' : ''}" data-action="theme-select" data-mode="${value}" style="min-width:150px;text-align:left">
+        <div style="font-weight:600">${label}</div>
+        <div class="small muted">${detail}</div>
+      </button>`;
+    main.innerHTML = `
+      <div class="card">
+        <div class="row">
+          <h3 class="spacer">外观</h3>
+          <span class="small muted">当前：${mode === 'system' ? '跟随系统' : mode === 'light' ? '明亮' : '黑暗'}</span>
+        </div>
+        <div class="card-sub">默认跟随系统明暗模式；选择「明亮」或「黑暗」后以你的选择为准。</div>
+        <div class="row" style="margin-top:14px">
+          ${option('system', '跟随系统', '随系统切换')}
+          ${option('light', '明亮', '浅色界面')}
+          ${option('dark', '黑暗', '深色界面')}
+        </div>
+      </div>`;
   }
 
   function personalProfileHTML(user) {
@@ -2590,8 +2613,12 @@
         localStorage.setItem(THEME_KEY, mode);
       }
       applyTheme(currentTheme());
-      const menu = document.getElementById('user-menu');
-      if (menu) menu.hidden = true;
+      if (state.view === 'appearance') {
+        loadView();
+      } else {
+        const menu = document.getElementById('user-menu');
+        if (menu) menu.hidden = true;
+      }
     },
     'list-tab': (el) => {
       const key = el.dataset.view === 'activities' ? 'actTab'
