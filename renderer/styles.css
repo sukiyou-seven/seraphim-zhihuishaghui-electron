@@ -352,3 +352,48 @@ pre.block {
 .ai-layout .chat-input { position: static; flex: none; margin-top: auto; padding-top: 12px; background: transparent; }
 @media (max-width: 1100px) { .ai-layout { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .summary-hero { flex-direction: column; align-items: flex-start; } .summary-columns { grid-template-columns: 1fr; } }
+
+/* 主题：默认深色；明亮主题由用户选择或跟随系统。 */
+:root { color-scheme: dark; }
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f7f2ea;
+  --bg-deep: #efe7dc;
+  --bg-soft: #fffaf3;
+  --surface: rgba(0, 0, 0, .04);
+  --surface-strong: rgba(0, 0, 0, .07);
+  --stroke: rgba(0, 0, 0, .10);
+  --stroke-strong: rgba(0, 0, 0, .18);
+  --text: rgba(0, 0, 0, .88);
+  --text-2: rgba(0, 0, 0, .58);
+  --text-3: rgba(0, 0, 0, .40);
+  --accent: #d94f2b;
+  --accent-soft: #b83d1f;
+  --warm: #a86a2a;
+  --success: #1f8a55;
+  --warning: #b9770e;
+  --danger: #b23b3b;
+}
+[data-theme="light"] body {
+  background: linear-gradient(135deg, #fff8f0 0%, var(--bg) 55%, var(--bg-deep) 100%);
+}
+[data-theme="light"] .sidebar { background: rgba(0, 0, 0, .03); }
+[data-theme="light"] .topbar { background: rgba(0, 0, 0, .03); }
+[data-theme="light"] .card {
+  background: linear-gradient(165deg, rgba(255, 255, 255, .92), rgba(255, 255, 255, .78));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55);
+}
+[data-theme="light"] .tabs,
+[data-theme="light"] .auth-tabs { background: rgba(0, 0, 0, .05); }
+[data-theme="light"] input,
+[data-theme="light"] textarea,
+[data-theme="light"] select,
+[data-theme="light"] pre.block { background: rgba(0, 0, 0, .04); }
+[data-theme="light"] .modal { background: #fffaf3; box-shadow: 0 30px 80px rgba(0, 0, 0, .18); }
+[data-theme="light"] .modal-backdrop { background: rgba(0, 0, 0, .25); }
+[data-theme="light"] .toast { background: #fffaf3; box-shadow: 0 16px 40px rgba(0, 0, 0, .12); }
+[data-theme="light"] .msg.user { background: rgba(217, 79, 43, .14); }
+[data-theme="light"] input[type="date"],
+[data-theme="light"] input[type="datetime-local"] { color-scheme: light; }
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, .14); background-clip: padding-box; }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, .24); background-clip: padding-box; }

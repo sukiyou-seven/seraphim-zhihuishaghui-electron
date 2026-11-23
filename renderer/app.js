@@ -1,6 +1,35 @@
 (() => {
   'use strict';
 
+  const THEME_KEY = 'qtb_theme';
+  const themeQuery = window.matchMedia('(prefers-color-scheme: light)');
+
+  function systemTheme() {
+    return themeQuery.matches ? 'light' : 'dark';
+  }
+
+  function storedTheme() {
+    const value = localStorage.getItem(THEME_KEY);
+    return value === 'light' || value === 'dark' ? value : 'system';
+  }
+
+  function currentTheme() {
+    const mode = storedTheme();
+    return mode === 'system' ? systemTheme() : mode;
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+  }
+
+  applyTheme(currentTheme());
+  themeQuery.addEventListener('change', () => {
+    if (storedTheme() === 'system') {
+      applyTheme(systemTheme());
+    }
+  });
+
   // 开发（electron .）连本地服务，打包后的生产版本连线上；地址按环境分别记忆。
   const APP_ENV = window.desktop?.env === 'development' ? 'development' : 'production';
   const IS_DEV = APP_ENV === 'development';
@@ -919,14 +948,35 @@
   }
 
   async function loadPersonal(main) {
-    const tab = state.data.personalTab === 'password' ? 'password' : 'profile';
+    const requested = state.data.personalTab;
+    const tab = requested === 'password' ? 'password' : requested === 'theme' ? 'theme' : 'profile';
     const user = state.user || {};
     main.innerHTML = `
       <div class="tabs">
         <button class="tab ${tab === 'profile' ? 'active' : ''}" data-action="personal-tab" data-tab="profile">资料</button>
         <button class="tab ${tab === 'password' ? 'active' : ''}" data-action="personal-tab" data-tab="password">改密码</button>
+        <button class="tab ${tab === 'theme' ? 'active' : ''}" data-action="personal-tab" data-tab="theme">外观</button>
       </div>
-      ${tab === 'profile' ? personalProfileHTML(user) : personalPasswordHTML(user)}`;
+      ${tab === 'profile' ? personalProfileHTML(user) : tab === 'password' ? personalPasswordHTML(user) : personalThemeHTML()}`;
+  }
+
+  function personalThemeHTML() {
+    const mode = storedTheme();
+    const option = (value, label, detail) => `
+      <button type="button" class="btn-sm ${mode === value ? 'primary' : ''}" data-action="theme-select" data-mode="${value}" style="min-width:120px;text-align:left">
+        <div style="font-weight:600">${label}</div>
+        <div class="small muted">${detail}</div>
+      </button>`;
+    return `
+      <div class="card">
+        <h3>外观</h3>
+        <div class="card-sub">默认跟随系统明暗模式；选择「明亮」或「黑暗」后以你的选择为准。</div>
+        <div class="row" style="margin-top:14px">
+          ${option('system', '跟随系统', '随系统切换')}
+          ${option('light', '明亮', '浅色界面')}
+          ${option('dark', '黑暗', '深色界面')}
+        </div>
+      </div>`;
   }
 
   function personalProfileHTML(user) {
@@ -2547,6 +2597,16 @@
     },
     'personal-tab': (el) => {
       state.data.personalTab = el.dataset.tab;
+      loadView();
+    },
+    'theme-select': (el) => {
+      const mode = el.dataset.mode;
+      if (mode === 'system') {
+        localStorage.removeItem(THEME_KEY);
+      } else {
+        localStorage.setItem(THEME_KEY, mode);
+      }
+      applyTheme(currentTheme());
       loadView();
     },
     'list-tab': (el) => {
