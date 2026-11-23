@@ -961,10 +961,7 @@
   }
 
   async function loadOrg(main) {
-    const [org, logs] = await Promise.all([
-      api('/api/org/profile'),
-      api('/api/org/audit-logs').catch(() => [])
-    ]);
+    const org = await api('/api/org/profile');
     state.data.org = org;
     const canManage = state.user.canManage === true;
     const ro = canManage ? '' : 'disabled';
@@ -991,37 +988,12 @@
         </form>
       </div>
       <div class="card">
-        <h3>证照与电子印章</h3>
+        <h3>营业执照</h3>
         <div class="row">
           <span>营业执照：${org.hasBusinessLicense ? pill('已上传', 'ok') : pill('未上传')}</span>
           <button data-action="upload-asset" data-kind="license" ${ro}>上传营业执照</button>
           <button class="danger" data-action="delete-asset" data-kind="license" ${ro}>删除</button>
         </div>
-        <div class="row" style="margin-top:10px">
-          <span>电子公章：${org.hasSeal ? pill('已上传', 'ok') : pill('未上传')}</span>
-          <button data-action="upload-asset" data-kind="seal" ${ro}>上传公章</button>
-          <button class="danger" data-action="delete-asset" data-kind="seal" ${ro}>删除</button>
-        </div>
-        <div class="row" style="margin-top:10px">
-          <span>法人签名：${org.hasSignature ? pill('已上传', 'ok') : pill('未上传')}</span>
-          <button data-action="upload-asset" data-kind="signature" ${ro}>上传签名</button>
-          <button class="danger" data-action="delete-asset" data-kind="signature" ${ro}>删除</button>
-        </div>
-      </div>
-      <div class="card">
-        <h3>用章与签名留痕</h3>
-        <div class="card-sub">只追加、不修改；记录操作人、时间、设备与对象，作为平台内部审计依据。</div>
-        <table style="margin-top:10px">
-          <tr><th>时间</th><th>操作人</th><th>动作</th><th>对象</th><th>文件摘要</th></tr>
-          ${logs.slice(0, 50).map(log => `
-            <tr>
-              <td class="small">${fmtDate(log.createdAt)}</td>
-              <td>${esc(log.userName || log.userPhone || '')}</td>
-              <td>${esc(log.action || '')}</td>
-              <td>${esc(log.targetTitle || log.targetType || '')}</td>
-              <td class="mono small">${esc((log.fileHash || '').slice(0, 12))}</td>
-            </tr>`).join('') || '<tr><td colspan="5" class="empty">暂无留痕记录</td></tr>'}
-        </table>
       </div>`;
   }
 
