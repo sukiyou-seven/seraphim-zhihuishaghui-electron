@@ -398,3 +398,14 @@ pre.block {
 [data-theme="light"] input[type="datetime-local"] { color-scheme: light; }
 [data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, .14); background-clip: padding-box; }
 [data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, .24); background-clip: padding-box; }
+
+.help-card { padding: 12px; }
+.help-frame {
+  width: 100%;
+  height: calc(100vh - 190px);
+  min-height: 480px;
+  display: block;
+  border: 0;
+  border-radius: 14px;
+  background: var(--bg-soft);
+}

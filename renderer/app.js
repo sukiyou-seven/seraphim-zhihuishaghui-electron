@@ -256,7 +256,8 @@
     joinReview: '入会审核',
     feedback: '投诉与建议',
     update: '版本检查',
-    appearance: '外观设置'
+    appearance: '外观设置',
+    help: '帮助'
   };
 
   const NAV_ICONS = {
@@ -271,6 +272,7 @@
     annual: '按年度汇总组织成员、内容与运营数据',
     personal: '个人资料与登录密码',
     appearance: '跟随系统或选择明亮/黑暗主题',
+    help: '在线帮助中心',
     org: '组织资料、证照与电子签章留痕；仅会长和秘书长可修改',
     memberTypes: '新增或删除本组织的会员身份类型',
     memberIdentity: '调整成员身份与 Pro 名额',
@@ -339,6 +341,7 @@
               <div class="user-menu-label">外观</div>
               <button data-nav="appearance"><span>◐</span>外观设置</button>
               <div class="user-menu-label">其他</div>
+              <button data-nav="help"><span>?</span>帮助</button>
               <button data-nav="feedback"><span>!</span>投诉与建议</button>
               <button data-action="open-update"><span>↻</span>版本检查</button>
               <button data-action="logout"><span>↪</span>退出登录</button>
@@ -443,6 +446,7 @@
         case 'annual': await loadAnnualSummary(main); break;
         case 'personal': await loadPersonal(main); break;
         case 'appearance': await loadAppearance(main); break;
+        case 'help': await loadHelp(main); break;
         case 'org': await loadOrg(main); break;
         case 'memberTypes': await loadMemberTypes(main); break;
         case 'memberIdentity': await loadMemberIdentity(main); break;
@@ -961,6 +965,21 @@
         <button class="tab ${tab === 'password' ? 'active' : ''}" data-action="personal-tab" data-tab="password">改密码</button>
       </div>
       ${tab === 'profile' ? personalProfileHTML(user) : personalPasswordHTML(user)}`;
+  }
+
+  async function loadHelp(main) {
+    main.innerHTML = `
+      <div class="card help-card">
+        <div class="row" style="margin-bottom:8px">
+          <h3 class="spacer">帮助中心</h3>
+          <span class="small muted">在线内容来自 help.deepbit001.com</span>
+        </div>
+        <iframe
+          class="help-frame"
+          src="https://help.deepbit001.com"
+          title="帮助中心"
+          referrerpolicy="no-referrer"></iframe>
+      </div>`;
   }
 
   async function loadAppearance(main) {
