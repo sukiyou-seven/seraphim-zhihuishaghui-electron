@@ -453,6 +453,33 @@
     return (state.data[name] || []);
   }
 
+  function regionProvinces() {
+    return (window.SHANGHUI_REGIONS || []).map(item => item.name);
+  }
+
+  function regionChildren(province, city) {
+    const provinceItem = (window.SHANGHUI_REGIONS || []).find(item => item.name === province);
+    if (!provinceItem) return [];
+    if (city === undefined) return provinceItem.children.map(item => item.name);
+    const cityItem = provinceItem.children.find(item => item.name === city);
+    return cityItem ? cityItem.children.map(item => item.name) : [];
+  }
+
+  function regionOptions(values, current) {
+    const list = [['', '请选择']].concat(values.map(value => [value, value]));
+    if (current && !values.includes(current)) list.push([current, current]);
+    return list;
+  }
+
+  function fillRegionSelect(form, name, values, current) {
+    const select = form.querySelector(`select[name="${name}"]`);
+    if (!select) return;
+    select.innerHTML = regionOptions(values, current)
+      .map(([value, text]) => `<option value="${esc(value)}">${esc(text)}</option>`)
+      .join('');
+    select.value = current || '';
+  }
+
   async function loadDashboard(main) {
     const safe = (path) => api(path).catch(() => null);
     const [profile, members, types, opportunities, myOpportunities, activities, myActivities, procurements, myProcurements, preferred, pro, website, geo, messages, enterprises] = await Promise.all([
@@ -952,11 +979,11 @@
           </div>
           ${field('地址', 'address', org.address || '', 'text', ro)}
           <div class="split">
-            ${field('省', 'province', org.province || '', 'text', ro)}
-            ${field('市', 'city', org.city || '', 'text', ro)}
+            ${selectField('省', 'province', regionOptions(regionProvinces(), org.province || ''), org.province || '', `data-region="province" ${ro}`)}
+            ${selectField('市', 'city', regionOptions(regionChildren(org.province || ''), org.city || ''), org.city || '', `data-region="city" ${ro}`)}
           </div>
           <div class="split">
-            ${field('区/县', 'district', org.district || '', 'text', ro)}
+            ${selectField('区/县', 'district', regionOptions(regionChildren(org.province || '', org.city || ''), org.district || ''), org.district || '', `data-region="district" ${ro}`)}
             ${field('联系电话', 'contactPhone', org.contactPhone || '', 'text', ro)}
           </div>
           ${textareaField('组织介绍', 'introduction', org.introduction || '', ro)}
@@ -3355,6 +3382,21 @@
       } catch (error) { toast(error.message, true); }
     }
   };
+
+  document.addEventListener('change', (event) => {
+    const select = event.target.closest('select[data-region]');
+    if (!select) return;
+    const form = select.closest('form');
+    if (!form) return;
+    const province = form.querySelector('select[name="province"]')?.value || '';
+    const city = form.querySelector('select[name="city"]')?.value || '';
+    if (select.dataset.region === 'province') {
+      fillRegionSelect(form, 'city', regionChildren(province), '');
+      fillRegionSelect(form, 'district', [], '');
+    } else if (select.dataset.region === 'city') {
+      fillRegionSelect(form, 'district', regionChildren(province, city), '');
+    }
+  });
 
   document.addEventListener('change', async (event) => {
     const input = event.target;
