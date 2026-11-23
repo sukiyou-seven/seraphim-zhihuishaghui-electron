@@ -36,7 +36,7 @@
   const BASE_KEY = `qtb_base_url_${APP_ENV}`;
   const LEGACY_BASE_KEY = 'qtb_base_url';
   const DEFAULT_BASE = IS_DEV ? 'http://127.0.0.1:32500' : 'https://qserver.deepbit001.com';
-  const APP_VERSION = '1.0.10024';
+  const APP_VERSION = '1.0.10025';
 
   function initialBaseUrl() {
     const saved = localStorage.getItem(BASE_KEY);
