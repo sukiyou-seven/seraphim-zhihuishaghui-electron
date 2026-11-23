@@ -334,6 +334,10 @@
                 <button data-nav="memberIdentity"><span>♙</span>会员身份管理</button>
                 <button data-nav="joinReview"><span>✓</span>入会审核</button>
               ` : ''}
+              <div class="user-menu-label">外观</div>
+              <button data-action="theme-select" data-mode="system"><span>◐</span>跟随系统</button>
+              <button data-action="theme-select" data-mode="light"><span>☀</span>明亮</button>
+              <button data-action="theme-select" data-mode="dark"><span>☾</span>黑暗</button>
               <div class="user-menu-label">其他</div>
               <button data-nav="feedback"><span>!</span>投诉与建议</button>
               <button data-action="open-update"><span>↻</span>版本检查</button>
@@ -948,35 +952,14 @@
   }
 
   async function loadPersonal(main) {
-    const requested = state.data.personalTab;
-    const tab = requested === 'password' ? 'password' : requested === 'theme' ? 'theme' : 'profile';
+    const tab = state.data.personalTab === 'password' ? 'password' : 'profile';
     const user = state.user || {};
     main.innerHTML = `
       <div class="tabs">
         <button class="tab ${tab === 'profile' ? 'active' : ''}" data-action="personal-tab" data-tab="profile">资料</button>
         <button class="tab ${tab === 'password' ? 'active' : ''}" data-action="personal-tab" data-tab="password">改密码</button>
-        <button class="tab ${tab === 'theme' ? 'active' : ''}" data-action="personal-tab" data-tab="theme">外观</button>
       </div>
-      ${tab === 'profile' ? personalProfileHTML(user) : tab === 'password' ? personalPasswordHTML(user) : personalThemeHTML()}`;
-  }
-
-  function personalThemeHTML() {
-    const mode = storedTheme();
-    const option = (value, label, detail) => `
-      <button type="button" class="btn-sm ${mode === value ? 'primary' : ''}" data-action="theme-select" data-mode="${value}" style="min-width:120px;text-align:left">
-        <div style="font-weight:600">${label}</div>
-        <div class="small muted">${detail}</div>
-      </button>`;
-    return `
-      <div class="card">
-        <h3>外观</h3>
-        <div class="card-sub">默认跟随系统明暗模式；选择「明亮」或「黑暗」后以你的选择为准。</div>
-        <div class="row" style="margin-top:14px">
-          ${option('system', '跟随系统', '随系统切换')}
-          ${option('light', '明亮', '浅色界面')}
-          ${option('dark', '黑暗', '深色界面')}
-        </div>
-      </div>`;
+      ${tab === 'profile' ? personalProfileHTML(user) : personalPasswordHTML(user)}`;
   }
 
   function personalProfileHTML(user) {
@@ -2607,7 +2590,8 @@
         localStorage.setItem(THEME_KEY, mode);
       }
       applyTheme(currentTheme());
-      loadView();
+      const menu = document.getElementById('user-menu');
+      if (menu) menu.hidden = true;
     },
     'list-tab': (el) => {
       const key = el.dataset.view === 'activities' ? 'actTab'

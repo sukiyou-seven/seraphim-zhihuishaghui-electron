@@ -255,7 +255,7 @@ pre.block {
 .user-menu {
   position: absolute; left: 0; right: 0; bottom: calc(100% + 8px);
   padding: 6px; border: 1px solid var(--stroke); border-radius: 12px;
-  background: #17121f; box-shadow: 0 18px 46px rgba(0, 0, 0, .42); z-index: 30;
+  background: var(--bg-soft); box-shadow: 0 18px 46px rgba(0, 0, 0, .42); z-index: 30;
 }
 .user-menu { max-height: min(70vh, 560px); overflow-y: auto; }
 .user-menu-label {
@@ -392,6 +392,7 @@ pre.block {
 [data-theme="light"] .modal { background: #fffaf3; box-shadow: 0 30px 80px rgba(0, 0, 0, .18); }
 [data-theme="light"] .modal-backdrop { background: rgba(0, 0, 0, .25); }
 [data-theme="light"] .toast { background: #fffaf3; box-shadow: 0 16px 40px rgba(0, 0, 0, .12); }
+[data-theme="light"] .user-menu { box-shadow: 0 18px 46px rgba(0, 0, 0, .14); }
 [data-theme="light"] .msg.user { background: rgba(217, 79, 43, .14); }
 [data-theme="light"] input[type="date"],
 [data-theme="light"] input[type="datetime-local"] { color-scheme: light; }
